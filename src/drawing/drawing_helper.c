@@ -64,7 +64,7 @@ void draw_diamond_outline(TileState tile_state, int sx, int sy, Color col) {
   DrawLineV(left, top, col);
 }
 
-void draw_ground_tile_tinted(TileState tile_state, int sx, int sy, Texture2D *tex, float scale, Color tint) {
+void draw_ground_tile_tinted(TileState tile_state, int sx, int sy, const Texture2D *tex, float scale, Color tint) {
   Vector2 pos = {
     sx - (tex->width  * scale) / 2.0f,
     sy + tile_state.TILE_H - tex->height * scale,
@@ -72,11 +72,11 @@ void draw_ground_tile_tinted(TileState tile_state, int sx, int sy, Texture2D *te
   DrawTextureEx(*tex, pos, 0, scale, tint);
 }
 
-void draw_ground_tile(TileState tile_state, int sx, int sy, Texture2D *tex, float scale) {
+void draw_ground_tile(TileState tile_state, int sx, int sy, const Texture2D *tex, float scale) {
   draw_ground_tile_tinted(tile_state, sx, sy, tex, scale, WHITE);
 }
 
-void draw_relief_tile_tinted(int sx, int sy, Texture2D *tex, float scale, Color tint) {
+void draw_relief_tile_tinted(int sx, int sy, const Texture2D *tex, float scale, Color tint) {
   Vector2 pos = {
     sx - (tex->width * scale) / 2.0f,
     sy,
@@ -84,7 +84,7 @@ void draw_relief_tile_tinted(int sx, int sy, Texture2D *tex, float scale, Color 
   DrawTextureEx(*tex, pos, 0, scale, tint);
 }
 
-void draw_relief_tile(int sx, int sy, Texture2D *tex, float scale) {
+void draw_relief_tile(int sx, int sy, const Texture2D *tex, float scale) {
   draw_relief_tile_tinted(sx, sy, tex, scale, WHITE);
 }
 

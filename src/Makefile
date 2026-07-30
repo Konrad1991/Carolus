@@ -14,7 +14,8 @@ SRCS = main.c \
        containers/arrays.c weather/weather.c weather/weather_scenario.c weather/clouds.c weather/puddles.c \
        soil/soil.c soil/soil_overlay.c \
        farming/crop_growth.c \
-			 seasons/seasons.c
+			 seasons/seasons.c \
+       minimap/minimap.c
 OBJS = $(SRCS:.c=.o)
 DEPS = $(OBJS:.o=.d)
 TARGET = main

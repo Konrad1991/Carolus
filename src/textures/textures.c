@@ -256,7 +256,7 @@ static void load_boundary_stone(Texture_State *texture_state, const char *bounda
 }
 
 static const Vector2 WHEAT_SHEAF_ANCHOR = {0.5f, 1.05f};
-static const float WHEAT_SHEAF_SCALE = 0.4f;
+static const float WHEAT_SHEAF_SCALE = 0.25f;
 
 static void load_wheat_sheaf(Texture_State *texture_state, const char *wheat_sheaf_dir) {
   char path[512];

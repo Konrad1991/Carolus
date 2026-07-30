@@ -46,17 +46,16 @@ static bool draw_month_arrow(Rectangle r, bool pointing_up) {
   return hovered;
 }
 
+Rectangle topbar_panel_rect(void) {
+  return (Rectangle){0, 0, 1800, 65};
+}
+
 void draw_season_bar(SeasonState *s) {
   const char* months[12] = {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "Oktober", "November", "December"
   };
-  Rectangle r = {
-    .x = 0,
-    .y = 0,
-    .width = 1800,
-    .height = 65
-  };
+  Rectangle r = topbar_panel_rect();
   DrawRectangleRounded(r, 0.2f, 8, BEIGE);
   DrawRectangleRoundedLinesEx(r, 0.2f, 8, 2.0f, BLACK);
   DrawText(

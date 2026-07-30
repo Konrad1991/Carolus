@@ -7,34 +7,21 @@
 
 #define TILE_IMPASSABLE INT_MAX
 
-static int get_neighbors(int node, int w, int h, bool allow_diagonal, int out[8]) {
-  int x, y;
-  node_to_xy(node, w, &x, &y);
-  int dx[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
-  int dy[8] = {0, 0, -1, 1, -1, 1, -1, 1};
-  int n = allow_diagonal ? 8 : 4;
-  int count = 0;
-  for (int k = 0; k < n; k++) {
-    int nx = x + dx[k];
-    int ny = y + dy[k];
-    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-      out[count++] = node_index(nx, ny, w);
-    }
-  }
-  return count;
-}
-
-static int tile_cost(const Tile *tile) {
+static int tile_base_cost(const Tile *tile) {
   if (!map_tile_walkable(tile)) return TILE_IMPASSABLE;
-  int base;
   switch (tile->type) {
-    case TILE_GRASS: base = 2; break;
-    case TILE_ROAD:  base = 1; break;
-    case TILE_MANSUSYARD: base = 3; break;
-    case TILE_SOIL: base = 2; break;
+    case TILE_GRASS: return 2;
+    case TILE_ROAD:  return 1;
+    case TILE_MANSUSYARD: return 3;
+    case TILE_SOIL: return 2;
     case TILE_WATER: default: return TILE_IMPASSABLE;
   }
-  const float density_cost_weight = 0.75f;
+}
+
+int tile_cost(const Tile *tile) {
+  int base = tile_base_cost(tile);
+  if (base == TILE_IMPASSABLE) return TILE_IMPASSABLE;
+  const float density_cost_weight = 0.005f;
   const int max_density_penalty = 4;
   int density_penalty = (int)(tile->crowd_density * density_cost_weight);
   if (density_penalty > max_density_penalty) density_penalty = max_density_penalty;
@@ -43,7 +30,9 @@ static int tile_cost(const Tile *tile) {
 
 // Flood Field
 // --------------------------------------------------------------
-FloodField flood_fill(Map *map, int* figures, int n_figures, bool allow_diagonal) {
+typedef int (*TileCostFn)(const Tile *tile);
+
+static int *run_dijkstra(const Map *map, const int *figures, int n_figures, bool allow_diagonal, TileCostFn tile_cost_fn) {
   int n = map->w * map->h;
   int *cost = malloc(sizeof(int) * n);
   bool *processed = calloc(n, sizeof(bool));
@@ -68,7 +57,7 @@ FloodField flood_fill(Map *map, int* figures, int n_figures, bool allow_diagonal
     int neighbors[8];
 
     const bool is_road = map->tiles[index].type == TILE_ROAD;
-    int count = get_neighbors(index, map->w, map->h, allow_diagonal && !is_road, neighbors);
+    int count = map_get_neighbors(map, index, allow_diagonal && !is_road, neighbors);
     for (int k = 0; k < count; k++) {
       int j = neighbors[k];
       if (processed[j]) continue;
@@ -76,73 +65,84 @@ FloodField flood_fill(Map *map, int* figures, int n_figures, bool allow_diagonal
       int jx;
       int jy;
       node_to_xy(j, map->w, &jx, &jy);
-      bool diagonal = jx != x && jy != y;
-      if (diagonal) {
-        const Tile *flank_a = &map->tiles[node_index(x, jy, map->w)];
-        const Tile *flank_b = &map->tiles[node_index(jx, y, map->w)];
-        if (!map_tile_walkable(flank_a) || !map_tile_walkable(flank_b)) continue;
-      }
+      if (map_diagonal_move_blocked(map, x, y, jx, jy)) continue;
 
-      int tcost = tile_cost(&map->tiles[j]);
+      int tcost = tile_cost_fn(&map->tiles[j]);
       if (tcost == TILE_IMPASSABLE) continue;
 
       int new_cost = cost[index] + tcost;
       if (new_cost < cost[j]) {
         cost[j] = new_cost;
-        int f = new_cost;
         if (heap_contains(heap, j)) {
-          heap_decrease_key(heap, j, f);
+          heap_decrease_key(heap, j, new_cost);
         } else {
-          heap_insert(heap, j, f);
+          heap_insert(heap, j, new_cost);
         }
       }
     }
   }
   heap_free(heap);
-
-  FloodField result = {0};
-  result.cost = cost;
-  result.len = n;
   free(processed);
+  return cost;
+}
+
+FloodField flood_fill(const Map *map, const int* figures, int n_figures, bool allow_diagonal) {
+  FloodField result = {0};
+  result.cost = run_dijkstra(map, figures, n_figures, allow_diagonal, tile_cost);
+  result.cost_no_density = run_dijkstra(map, figures, n_figures, allow_diagonal, tile_base_cost);
+  result.len = map->w * map->h;
   return result;
 }
 
 void flood_fill_free(FloodField *result) {
   if (result->cost) free(result->cost);
+  if (result->cost_no_density) free(result->cost_no_density);
   result->cost = NULL;
+  result->cost_no_density = NULL;
   result->len = 0;
 }
 
-
-int flood_field_best_neighbor(Map *map, FloodField *field, int node, bool allow_diagonal, int exclude_node) {
+static int best_neighbor_from_cost_field(const Map *map, const int *cost_field, int node, int target_node, bool allow_diagonal, int exclude_node) {
   int x;
   int y;
   node_to_xy(node, map->w, &x, &y);
+  int target_x;
+  int target_y;
+  node_to_xy(target_node, map->w, &target_x, &target_y);
   int neighbors[8];
   const bool is_road = map->tiles[node].type == TILE_ROAD;
-  int count = get_neighbors(node, map->w, map->h, allow_diagonal && !is_road, neighbors);
+  int count = map_get_neighbors(map, node, allow_diagonal && !is_road, neighbors);
   int best = -1;
-  int best_cost = field->cost[node];
+  int best_cost = cost_field[node];
+  int best_dist_to_target = (x - target_x) * (x - target_x) + (y - target_y) * (y - target_y);
   for (int k = 0; k < count; k++) {
     int j = neighbors[k];
     if (j == exclude_node) continue;
-    if (field->cost[j] == TILE_IMPASSABLE) continue;
+    if (cost_field[j] == TILE_IMPASSABLE) continue;
     int jx;
     int jy;
     node_to_xy(j, map->w, &jx, &jy);
-    bool diagonal = jx != x && jy != y;
-    if (diagonal) {
-      const Tile *flank_a = &map->tiles[node_index(x, jy, map->w)];
-      const Tile *flank_b = &map->tiles[node_index(jx, y, map->w)];
-      if (!map_tile_walkable(flank_a) || !map_tile_walkable(flank_b)) continue;
-    }
+    if (map_diagonal_move_blocked(map, x, y, jx, jy)) continue;
+    if (cost_field[j] > best_cost) continue;
 
-    if (field->cost[j] < best_cost) {
-      best_cost = field->cost[j];
+    int dist_to_target = (jx - target_x) * (jx - target_x) + (jy - target_y) * (jy - target_y);
+    bool strictly_cheaper = cost_field[j] < best_cost;
+    bool tied_but_closer = cost_field[j] == best_cost && dist_to_target < best_dist_to_target;
+    if (strictly_cheaper || tied_but_closer) {
+      best_cost = cost_field[j];
       best = j;
+      best_dist_to_target = dist_to_target;
     }
   }
   return best;
+}
+
+int flood_field_best_neighbor(const Map *map, FloodField *field, int node, int target_node, bool allow_diagonal, int exclude_node) {
+  return best_neighbor_from_cost_field(map, field->cost, node, target_node, allow_diagonal, exclude_node);
+}
+
+int flood_field_best_neighbor_ignoring_density(const Map *map, FloodField *field, int node, int target_node, bool allow_diagonal, int exclude_node) {
+  return best_neighbor_from_cost_field(map, field->cost_no_density, node, target_node, allow_diagonal, exclude_node);
 }
 
 #define CROWD_DENSITY_RADIUS 2
@@ -188,6 +188,7 @@ void refresh_flood_fields(Map *map, ObjectArray *objects, FloodFieldArray *flood
 
     flood_fill_free(f);
     f->cost = fresh.cost;
+    f->cost_no_density = fresh.cost_no_density;
     f->len = fresh.len;
   }
 }

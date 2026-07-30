@@ -6,7 +6,7 @@
 
 FigureDirection detect_figure_direction(const int x0, const int x1, const int y0, const int y1);
 
-void update_figures(ObjectArray *objects, Map *map, Texture_State texture_state, FloodFieldArray* flood_field_state);
+void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture_state, FloodFieldArray* flood_field_state);
 
 void figure_release_reservation(Map *map, Object *figure);
 

@@ -170,7 +170,7 @@ static void update_figure_attributes(ObjectArray* objects,
   }
 }
 
-void command_selected_units(const Selection* sel, Map* map, TileState* tile_state, ObjectArray *objects, FloodFieldArray* flood_field_state, GameState *game_state) {
+void command_selected_units(const Selection* sel, Map* map, TileState tile_state, ObjectArray *objects, FloodFieldArray* flood_field_state, GameState *game_state, bool any_hovered) {
   if (IsKeyPressed(KEY_D)) selected_figures_do(sel, objects, FIGURE_ACTION_DIG, map, flood_field_state);
   if (IsKeyPressed(KEY_C)) selected_figures_do(sel, objects, FIGURE_ACTION_CHOP, map, flood_field_state);
   if (IsKeyPressed(KEY_H)) selected_figures_do(sel, objects, FIGURE_ACTION_HAMMER, map, flood_field_state);
@@ -183,11 +183,11 @@ void command_selected_units(const Selection* sel, Map* map, TileState* tile_stat
     }
   }
 
-  if (sel->count == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) return;
+  if (sel->count == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || any_hovered) return;
 
   Vector2 current = GetMousePosition();
-  const int tx = screen_to_tile_x(*tile_state, current.x, current.y);
-  const int ty = screen_to_tile_y(*tile_state, current.x, current.y);
+  const int tx = screen_to_tile_x(tile_state, current.x, current.y);
+  const int ty = screen_to_tile_y(tile_state, current.x, current.y);
   Tile *target_tile = map_tile(map, tx, ty);
   if (!target_tile) return;
 

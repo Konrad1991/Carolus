@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+Rectangle soil_overlay_panel_rect(void);
+
 void draw_soil_overlay_bar(SoilOverlayState *state);
 
 void draw_soil_overlay_legend(SoilOverlayState state);

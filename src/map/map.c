@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include "map.h"
+#include "utils/utils.h"
 
 void map_init(Map *map, int w, int h) {
   map->w = w;
@@ -16,7 +17,7 @@ Tile *map_tile(Map *map, int x, int y) {
   return &map->tiles[y * map->w + x];
 }
 
-bool map_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
+bool map_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
   for (int fy = ty - fh + 1; fy <= ty; fy++) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
@@ -27,7 +28,7 @@ bool map_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
   return true;
 }
 
-bool map_building_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
+bool map_building_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
   for (int fy = ty - fh + 1; fy <= ty; fy++) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
@@ -78,7 +79,7 @@ void map_clear_object(Map *map, const Object *o) {
   }
 }
 
-bool map_bridge_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
+bool map_bridge_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
   for (int fy = ty - fh + 1; fy <= ty; fy++) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
@@ -90,7 +91,7 @@ bool map_bridge_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
   return false;
 }
 
-bool map_figure_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
+bool map_figure_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
   for (int fy = ty - fh + 1; fy <= ty; fy++) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
@@ -101,7 +102,7 @@ bool map_figure_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
   return true;
 }
 
-bool map_mansus_is_placeable(Map *map, int tx, int ty, int fw, int fh) {
+bool map_mansus_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
   for (int fy = ty - fh + 1; fy <= ty; fy++) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
@@ -139,4 +140,28 @@ int map_free_tiles_near(Map *map, int bx, int by, int n, int *out_tx, int *out_t
     }
   }
   return found;
+}
+
+int map_get_neighbors(const Map *map, int node, bool allow_diagonal, int out[8]) {
+  int x, y;
+  node_to_xy(node, map->w, &x, &y);
+  const int dx[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
+  const int dy[8] = {0, 0, -1, 1, -1, 1, -1, 1};
+  int n = allow_diagonal ? 8 : 4;
+  int count = 0;
+  for (int k = 0; k < n; k++) {
+    int nx = x + dx[k];
+    int ny = y + dy[k];
+    if (nx >= 0 && nx < map->w && ny >= 0 && ny < map->h) {
+      out[count++] = node_index(nx, ny, map->w);
+    }
+  }
+  return count;
+}
+
+bool map_diagonal_move_blocked(const Map *map, int x, int y, int jx, int jy) {
+  if (jx == x || jy == y) return false;
+  const Tile *flank_a = &map->tiles[node_index(x, jy, map->w)];
+  const Tile *flank_b = &map->tiles[node_index(jx, y, map->w)];
+  return !map_tile_walkable(flank_a) || !map_tile_walkable(flank_b);
 }

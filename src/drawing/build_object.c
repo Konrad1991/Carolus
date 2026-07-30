@@ -8,7 +8,7 @@
 
 static unsigned int next_object_id = 1;
 
-void place_road_tile(ObjectArray *objects, Map *map, Texture_State *texture_state, int tx, int ty) {
+void place_road_tile(ObjectArray *objects, Map *map, const Texture_State *texture_state, int tx, int ty) {
   if (!map_is_placeable(map, tx, ty, 1, 1)) return;
 
   int variant = tile_variant(tx, ty, BUILDING_DIR_COUNT);
@@ -142,7 +142,7 @@ void delete_object(ObjectArray *objects, Map *map,
   object_array_remove_swap(objects, final_index);
 }
 
-static void scatter_boundary_stones(ObjectArray *objects, Map *map, Texture_State *texture_state,
+static void scatter_boundary_stones(ObjectArray *objects, Map *map, const Texture_State *texture_state,
                                     int tx, int ty, int footprint_w, int footprint_h) {
   int back_x = tx - footprint_w + 1;
   int back_y = ty - footprint_h + 1;
@@ -164,7 +164,7 @@ static void scatter_boundary_stones(ObjectArray *objects, Map *map, Texture_Stat
 
 // Build a texture
 // -----------------------------------------------------------------
-BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, Texture_State *texture_state,
+BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, const Texture_State *texture_state,
                                   Map *map, GameState *game_state, SeasonBlend season_blend) {
   BuildPreview preview = {0};
 
@@ -297,7 +297,7 @@ BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, Te
 
 void build_object(ObjectArray *objects, const BuildPreview *preview,
                   TileState tile_state, ModeState mode_state,
-                  Map* map, GameState *game_state, Texture_State *texture_state,
+                  Map* map, GameState *game_state, const Texture_State *texture_state,
                   bool icon_hovered) {
   if (!preview->active) return;
 

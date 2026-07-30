@@ -25,18 +25,17 @@ static bool draw_overlay_button(int x, int y, int w, int h, const char *label, b
   return hovered;
 }
 
+Rectangle soil_overlay_panel_rect(void) {
+  return (Rectangle){0, 250, 110, 250};
+}
+
 void draw_soil_overlay_bar(SoilOverlayState *state) {
   const int x = 10;
   int y = 270;
   const int width = 90;
   const int height = 30;
   const int padding = 6;
-  Rectangle r = {
-    .x = 0,
-    .y = y - 20,
-    .width = 110,
-    .height = 250
-  };
+  Rectangle r = soil_overlay_panel_rect();
   DrawRectangleRounded(r, 0.2f, 8, BEIGE);
   DrawRectangleRoundedLinesEx(r, 0.2f, 8, 2.0f, BLACK);
   DrawText(

@@ -143,6 +143,7 @@ typedef struct {
 
 typedef struct {
   int* cost;
+  int* cost_no_density;
   int len;
   int n_figures;
   bool active;
@@ -388,6 +389,15 @@ typedef struct {
 typedef struct {
   Cloud clouds[CLOUD_COUNT];
 } CloudState;
+
+// Minimap
+// ----------------------
+typedef struct {
+  Texture2D terrain_texture;
+  bool terrain_texture_loaded;
+  float refresh_timer;
+  bool hovered;
+} MinimapState;
 
 // Mode
 // ----------------------

@@ -225,7 +225,7 @@ aren't wired to any distinct size/equipment logic yet.
       (Villikation), even though the topic is uncomfortable — serfs/unfree
       laborers are part of this economic system)
 
-## Trees & Shrubs (Blender)
+## Trees & Shrubs
 
 Oak is the current template species, done fully before starting any other
 species: wind sway [x] done; season variants (autumn colors, bare winter

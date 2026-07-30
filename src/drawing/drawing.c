@@ -53,8 +53,8 @@ static bool tile_is_edge(Map *map, const Tile *t, int x, int y, float water_leve
   return (n_right && t->z > z_right) || (n_down && t->z > z_down);
 }
 
-static void visible_tile_bounds(TileState tile_state, const Map *map,
-                                int *min_tx, int *max_tx, int *min_ty, int *max_ty) {
+void visible_tile_bounds(TileState tile_state, const Map *map,
+                         int *min_tx, int *max_tx, int *min_ty, int *max_ty) {
   int screen_w = GetScreenWidth();
   int screen_h = GetScreenHeight();
   int corner_sx[4] = {0, screen_w, 0, screen_w};
@@ -401,10 +401,10 @@ static bool selection_has_farmer(const ObjectArray *objects, const Selection *se
   return false;
 }
 
-void draw_cursor(Texture_State *texture_state, const TileState* tile_state,
+void draw_cursor(const Texture_State *texture_state, const TileState* tile_state,
                  const ObjectArray* objects, const Selection* sel, Map *map) {
   Vector2 mouse = GetMousePosition();
-  SpriteAsset *sprite = &texture_state->cursor;
+  const SpriteAsset *sprite = &texture_state->cursor;
   if (sel->count > 0) {
     const bool is_tree_target = mouse_over_tree(tile_state, objects, mouse);
     if (is_tree_target) {

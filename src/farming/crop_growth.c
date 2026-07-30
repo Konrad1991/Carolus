@@ -96,7 +96,7 @@ static const Vector2 WHEAT_TUFT_SLOTS[WHEAT_TUFTS_PER_TILE] = {
   {-0.15f, -0.50f},
 };
 
-static void scatter_wheat_tufts(ObjectArray *objects, Texture_State *texture_state, Map *map, const Field *field) {
+static void scatter_wheat_tufts(ObjectArray *objects, const Texture_State *texture_state, Map *map, const Field *field) {
   const float wheat_vigor_min = 0.8f;
   const float wheat_vigor_max = 1.4f;
   float min_x = (float)field->corners_field[0][0] - 1.0f;
@@ -153,7 +153,7 @@ static void set_wheat_stage(Object *o, WheatStage stage) {
 }
 
 static void update_wheat_tuft_growth(Map *map, ObjectArray *objects) {
-  float dt = game_delta_time();
+  const float dt = game_delta_time();
   const float wheat_overripe_seconds = SECONDS_PER_MONTH * 1.0f;
   const float wheat_destroyed_seconds = SECONDS_PER_MONTH * 0.5f;
   const float wheat_max_immature_seconds = SECONDS_PER_MONTH * 2.5f;
@@ -214,8 +214,8 @@ static bool field_has_active_tuft(const Field *field, const ObjectArray *objects
   return false;
 }
 
-void update_crop_growth(Map *map, ObjectArray *objects, Texture_State *texture_state, GameState *game_state) {
-  float dt = game_delta_time();
+void update_crop_growth(Map *map, ObjectArray *objects, const Texture_State *texture_state, GameState *game_state) {
+  const float dt = game_delta_time();
   const float germination_sustain_seconds = SECONDS_PER_MONTH / 6.0f;
 
   for (int mi = 0; mi < game_state->mansen.count; mi++) {

@@ -2,7 +2,7 @@
 #include "drawing/drawing_helper.h"
 #include "raylib.h"
 
-void update_trees(ObjectArray *objects, Texture_State *texture_state, WeatherState *weather_state, SeasonBlend season_blend) {
+void update_trees(ObjectArray *objects, const Texture_State *texture_state, const WeatherState *weather_state, SeasonBlend season_blend) {
   bool wind_active = weather_state->current == WEATHER_WINDY || weather_state->current == WEATHER_RAIN;
   const float oak_sway_fps = 6.0f;
 

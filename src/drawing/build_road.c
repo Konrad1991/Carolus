@@ -20,7 +20,7 @@ static void draw_path_preview(TileState tile_state, Map *map, const PathResult *
 }
 
 void update_road_drag(RoadDragState *drag, TileState tile_state, ModeState *mode_state,
-                       Map *map, ObjectArray *objects, Texture_State *texture_state,
+                       Map *map, ObjectArray *objects, const Texture_State *texture_state,
                        bool icon_hovered) {
   if (mode_state->current != BUILD_ROAD) {
     if (drag->dragging) {

@@ -6,25 +6,6 @@
 
 #define TILE_IMPASSABLE INT_MAX
 
-/* fills out[0..7] with up to 8 (or up to 4 if allow_diagonal is false)
- * neighbor node indices, returns how many were written */
-static int get_neighbors(int node, int w, int h, bool allow_diagonal, int out[8]) {
-  int x, y;
-  node_to_xy(node, w, &x, &y);
-  int dx[8] = {-1, 1, 0, 0, -1, -1, 1, 1};
-  int dy[8] = {0, 0, -1, 1, -1, 1, -1, 1};
-  int n = allow_diagonal ? 8 : 4;
-  int count = 0;
-  for (int k = 0; k < n; k++) {
-    int nx = x + dx[k];
-    int ny = y + dy[k];
-    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-      out[count++] = node_index(nx, ny, w);
-    }
-  }
-  return count;
-}
-
 static int tile_cost(const Tile *tile) {
   if (!map_tile_walkable(tile)) return TILE_IMPASSABLE;
   switch (tile->type) {
@@ -59,7 +40,7 @@ void path_result_free(PathResult *result) {
   result->solution_len = 0;
 }
 
-PathResult a_star(Map *map, int start, int end, bool allow_diagonal) {
+PathResult a_star(const Map *map, int start, int end, bool allow_diagonal) {
   int n = map->w * map->h;
   int *pi = malloc(sizeof(int) * n);
   int *prev = malloc(sizeof(int) * n);
@@ -84,22 +65,14 @@ PathResult a_star(Map *map, int start, int end, bool allow_diagonal) {
     int neighbors[8];
 
     const bool is_road = map->tiles[index].type == TILE_ROAD;
-    int count = get_neighbors(index, map->w, map->h, allow_diagonal && !is_road, neighbors);
+    int count = map_get_neighbors(map, index, allow_diagonal && !is_road, neighbors);
     for (int k = 0; k < count; k++) {
       int j = neighbors[k];
       if (processed[j]) continue;
 
       int jx, jy;
       node_to_xy(j, map->w, &jx, &jy);
-      bool diagonal = jx != x && jy != y;
-      if (diagonal) {
-        /* don't let a diagonal step cut through the corner between two
-         * blocked orthogonal tiles - keeps figures from squeezing past
-         * buildings/water on the diagonal */
-        const Tile *flank_a = &map->tiles[node_index(x, jy, map->w)];
-        const Tile *flank_b = &map->tiles[node_index(jx, y, map->w)];
-        if (!map_tile_walkable(flank_a) || !map_tile_walkable(flank_b)) continue;
-      }
+      if (map_diagonal_move_blocked(map, x, y, jx, jy)) continue;
 
       int cost = tile_cost(&map->tiles[j]);
       if (cost == TILE_IMPASSABLE) continue;

@@ -12,7 +12,7 @@ static const bool WHEAT_STAGE_SWAYS[WHEAT_STAGE_COUNT] = {
   [WHEAT_STAGE_DESTROYED] = false,
 };
 
-void update_wheat_tufts(ObjectArray *objects, Texture_State *texture_state, WeatherState *weather_state) {
+void update_wheat_tufts(ObjectArray *objects, const Texture_State *texture_state, const WeatherState *weather_state) {
   bool wind_active = weather_state->current == WEATHER_WINDY || weather_state->current == WEATHER_RAIN;
   const float wheat_sway_fps = 6.0f;
   const FigureDirection wheat_calm_direction = FIGURE_DIR_FRONT_RIGHT;
@@ -20,7 +20,6 @@ void update_wheat_tufts(ObjectArray *objects, Texture_State *texture_state, Weat
   for (int i = 0; i < objects->count; i++) {
     Object *o = &objects->data[i];
     if (o->kind != OBJECT_WHEAT_TUFT) continue;
-
     WheatStage stage = o->wheat.wheat_stage;
     if (stage == WHEAT_STAGE_HARVESTED) {
       o->sprite = texture_state->wheat_sheaf;

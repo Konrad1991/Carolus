@@ -3,6 +3,6 @@
 
 #include "types.h"
 
-void update_wheat_tufts(ObjectArray *objects, Texture_State *texture_state, WeatherState *weather_state);
+void update_wheat_tufts(ObjectArray *objects, const Texture_State *texture_state, const WeatherState *weather_state);
 
 #endif

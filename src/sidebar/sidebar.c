@@ -4,7 +4,7 @@ float min_float(float a, float b) {
   return (a < b) ? a : b;
 }
 
-void init_sidebar_state(SidebarState* sidebar_state, Texture_State *texture_state,
+void init_sidebar_state(SidebarState* sidebar_state, const Texture_State *texture_state,
                         const int SIDEBAR_WIDTH, const int SIDEBAR_PADDING,
                         const int FONT_SIZE, const float ICON_WIDTH, const float ICON_HEIGHT) {
   sidebar_state->SIDEBAR_WIDTH = SIDEBAR_WIDTH;
@@ -107,7 +107,7 @@ bool draw_icon(SidebarState sidebar_state, Texture2D tex, float si_h, int x, int
   return hovered;
 }
 
-void draw_sidebar(SidebarState* sidebar_state, Texture_State *texture_state, bool hovered[MODE_COUNT]) {
+void draw_sidebar(SidebarState* sidebar_state, const Texture_State *texture_state, bool hovered[MODE_COUNT]) {
   update_sidebar_state(sidebar_state);
   Rectangle r = {
     sidebar_state->SIDEBAR_X, 0,
