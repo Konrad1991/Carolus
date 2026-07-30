@@ -1,4 +1,5 @@
 #include "weather/weather_scenario.h"
+#include "seasons/seasons.h"
 #include "soil/soil.h"
 #include "utils/game_time.h"
 #include "raylib.h"
@@ -124,7 +125,7 @@ static const char *SCENARIO_LABELS[WEATHER_SCENARIO_COUNT] = {
   [WEATHER_SCENARIO_BAD_YEAR] = "bad year",
 };
 
-static bool draw_scenario_button(int x, int y, int w, int h, const char *label, bool active) {
+static bool draw_scenario_button(int x, int y, int w, int h, float vscale, const char *label, bool active) {
   Vector2 mouse = GetMousePosition();
   Rectangle rect = {(float)x, (float)y, (float)w, (float)h};
   bool hovered = CheckCollisionPointRec(mouse, rect);
@@ -132,23 +133,26 @@ static bool draw_scenario_button(int x, int y, int w, int h, const char *label, 
   DrawRectangleRounded(rect, 0.2f, 6, bg);
   Color border = active ? GOLD : DARKGRAY;
   DrawRectangleRoundedLinesEx(rect, 0.2f, 6, active ? 3.0f : 2.0f, border);
-  int text_w = MeasureText(label, 16);
-  DrawText(label, x + (w - text_w) / 2, y + h / 2 - 8, 16, BLACK);
+  int font_size = (int)(16 * vscale);
+  int text_w = MeasureText(label, font_size);
+  DrawText(label, x + (w - text_w) / 2, y + h / 2 - font_size / 2, font_size, BLACK);
   return hovered;
 }
 
 void draw_weather_scenario_bar(WeatherScenarioState *state) {
-  int x = 750;
-  const int y = 27;
-  const int btn_width = 130;
-  const int btn_height = 30;
-  const int btn_padding = 10;
+  float scale = topbar_scale();
+  float vscale = topbar_vertical_scale();
+  int x = (int)(750 * scale);
+  int y = (int)(27 * vscale);
+  int btn_width = (int)(130 * scale);
+  int btn_height = (int)(30 * vscale);
+  int btn_padding = (int)(10 * scale);
 
   for (int i = 0; i < WEATHER_SCENARIO_COUNT; i++) {
-    state->hovered[i] = draw_scenario_button(x, y, btn_width, btn_height, SCENARIO_LABELS[i], state->current == (WeatherScenario)i);
+    state->hovered[i] = draw_scenario_button(x, y, btn_width, btn_height, vscale, SCENARIO_LABELS[i], state->current == (WeatherScenario)i);
     x += btn_width + btn_padding;
   }
-  DrawLineEx((Vector2){x, 0}, (Vector2){x, 65}, 2.0f, BLACK);
+  DrawLineEx((Vector2){x, 0}, (Vector2){x, 65 * vscale}, 2.0f, BLACK);
 }
 
 void update_weather_scenario_state(WeatherScenarioState *state) {

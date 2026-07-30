@@ -1,4 +1,5 @@
 #include "utils/game_time.h"
+#include "seasons/seasons.h"
 #include "raylib.h"
 #include <stdio.h>
 
@@ -17,7 +18,7 @@ float get_game_time_scale(void) {
   return g_time_scale;
 }
 
-static bool draw_speed_button(int x, int y, int w, int h, const char *label, bool active) {
+static bool draw_speed_button(int x, int y, int w, int h, float vscale, const char *label, bool active) {
   Vector2 mouse = GetMousePosition();
   Rectangle rect = {(float)x, (float)y, (float)w, (float)h};
   bool hovered = CheckCollisionPointRec(mouse, rect);
@@ -27,25 +28,28 @@ static bool draw_speed_button(int x, int y, int w, int h, const char *label, boo
   Color border = active ? GOLD : DARKGRAY;
   DrawRectangleRoundedLinesEx(rect, 0.2f, 6, active ? 3.0f : 2.0f, border);
 
-  int text_w = MeasureText(label, 16);
-  DrawText(label, x + (w - text_w) / 2, y + h / 2 - 8, 16, BLACK);
+  int font_size = (int)(16 * vscale);
+  int text_w = MeasureText(label, font_size);
+  DrawText(label, x + (w - text_w) / 2, y + h / 2 - font_size / 2, font_size, BLACK);
   return hovered;
 }
 
 void draw_game_speed_bar(GameSpeedState *state) {
-  int x = 1480;
-  const int y = 27;
-  const int btn_height = 30;
-  const int btn_width = 55;
-  const int btn_padding = 6;
+  float scale = topbar_scale();
+  float vscale = topbar_vertical_scale();
+  int x = (int)(1480 * scale);
+  int y = (int)(27 * vscale);
+  int btn_height = (int)(30 * vscale);
+  int btn_width = (int)(55 * scale);
+  int btn_padding = (int)(6 * scale);
   DrawText(
     TextFormat("Game Speed"),
-    x + 100, 5, 20, WHITE
+    x + (int)(100 * scale), (int)(5 * vscale), (int)(20 * vscale), WHITE
   );
   for (int i = 0; i < GAME_SPEED_COUNT; i++) {
     char label[16];
     snprintf(label, sizeof(label), "%gx", GAME_SPEED_PRESETS[i]);
-    state->hovered[i] = draw_speed_button(x, y, btn_width, btn_height, label, state->current_index == i);
+    state->hovered[i] = draw_speed_button(x, y, btn_width, btn_height, vscale, label, state->current_index == i);
     x += btn_width + btn_padding;
   }
 }

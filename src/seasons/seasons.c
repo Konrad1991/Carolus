@@ -46,8 +46,18 @@ static bool draw_month_arrow(Rectangle r, bool pointing_up) {
   return hovered;
 }
 
+float topbar_scale(void) {
+  const float reference_screen_width = 1920.0f;
+  return (float)GetScreenWidth() / reference_screen_width;
+}
+
+float topbar_vertical_scale(void) {
+  const float vertical_compression = 0.9f;
+  return topbar_scale() * vertical_compression;
+}
+
 Rectangle topbar_panel_rect(void) {
-  return (Rectangle){0, 0, 1800, 65};
+  return (Rectangle){0, 0, 1800.0f * topbar_scale(), 65.0f * topbar_vertical_scale()};
 }
 
 void draw_season_bar(SeasonState *s) {
@@ -55,19 +65,20 @@ void draw_season_bar(SeasonState *s) {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "Oktober", "November", "December"
   };
+  float scale = topbar_scale();
+  float vscale = topbar_vertical_scale();
   Rectangle r = topbar_panel_rect();
   DrawRectangleRounded(r, 0.2f, 8, BEIGE);
   DrawRectangleRoundedLinesEx(r, 0.2f, 8, 2.0f, BLACK);
   DrawText(
     TextFormat("Month %s", months[s->month]),
-    500, 25, 20, WHITE
+    (int)(500 * scale), (int)(25 * vscale), (int)(20 * vscale), WHITE
   );
 
-  Rectangle up_rect   = {680, 5,  30, 25};
-  Rectangle down_rect = {680, 35, 30, 25};
+  Rectangle up_rect   = {680 * scale, 5 * vscale,  30 * scale, 25 * vscale};
+  Rectangle down_rect = {680 * scale, 35 * vscale, 30 * scale, 25 * vscale};
   s->month_up_hovered   = draw_month_arrow(up_rect, true);
   s->month_down_hovered = draw_month_arrow(down_rect, false);
 
-  DrawLineEx((Vector2){720, 0}, (Vector2){720, 65}, 2.0f, BLACK);
-
+  DrawLineEx((Vector2){720 * scale, 0}, (Vector2){720 * scale, r.height}, 2.0f, BLACK);
 }

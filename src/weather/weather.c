@@ -1,6 +1,7 @@
 #include "weather/weather.h"
 #include "drawing/drawing_helper.h"
 #include "raylib.h"
+#include "seasons/seasons.h"
 #include "utils/game_time.h"
 #include <math.h>
 
@@ -49,9 +50,9 @@ void init_weather_state(WeatherState *weather_state, SeasonState season_state) {
   weather_state->water_level_z = water_level_for_temperature(weather_state->temperature_celsius);
 }
 
-static bool draw_weather_icon_frame(int x, int y, bool active) {
+static bool draw_weather_icon_frame(int x, int y, float icon_size, bool active) {
   Vector2 mouse = GetMousePosition();
-  Rectangle icon_rect = {x, y, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE};
+  Rectangle icon_rect = {x, y, icon_size, icon_size};
   bool hovered = CheckCollisionPointRec(mouse, icon_rect);
   bool pressed = hovered && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
   int press_offset = pressed ? 2 : 0;
@@ -69,8 +70,8 @@ static bool draw_weather_icon_frame(int x, int y, bool active) {
   Rectangle icon_rect_draw = {
     x + press_offset,
     y + press_offset,
-    WEATHER_ICON_SIZE,
-    WEATHER_ICON_SIZE
+    icon_size,
+    icon_size
   };
   DrawRectangleRounded(icon_rect_draw, 0.2f, 8, icon_bg);
   Color border = active ? GOLD : DARKGRAY;
@@ -78,14 +79,14 @@ static bool draw_weather_icon_frame(int x, int y, bool active) {
   return hovered;
 }
 
-static void draw_sun_glyph(int x, int y) {
-  float cx = x + WEATHER_ICON_SIZE / 2.0f;
-  float cy = y + WEATHER_ICON_SIZE / 2.0f;
-  float radius = WEATHER_ICON_SIZE * 0.22f;
+static void draw_sun_glyph(int x, int y, float icon_size) {
+  float cx = x + icon_size / 2.0f;
+  float cy = y + icon_size / 2.0f;
+  float radius = icon_size * 0.22f;
   Color col = (Color){235, 170, 30, 255};
   DrawCircle((int)cx, (int)cy, radius, col);
   int n_rays = 8;
-  float ray_len = WEATHER_ICON_SIZE * 0.16f;
+  float ray_len = icon_size * 0.16f;
   for (int i = 0; i < n_rays; i++) {
     float angle = i * (2.0f * PI / n_rays);
     Vector2 inner = {cx + cosf(angle) * (radius + 4.0f), cy + sinf(angle) * (radius + 4.0f)};
@@ -94,32 +95,32 @@ static void draw_sun_glyph(int x, int y) {
   }
 }
 
-static void draw_wind_direction_glyph(int x, int y, FigureDirection dir) {
-  float cx = x + WEATHER_ICON_SIZE / 2.0f;
-  float cy = y + WEATHER_ICON_SIZE / 2.0f;
+static void draw_wind_direction_glyph(int x, int y, float icon_size, FigureDirection dir) {
+  float cx = x + icon_size / 2.0f;
+  float cy = y + icon_size / 2.0f;
   Vector2 v = screen_direction_for_facing(dir);
-  float arm = WEATHER_ICON_SIZE * 0.3f;
+  float arm = icon_size * 0.3f;
   Vector2 tip = {cx + v.x * arm, cy + v.y * arm};
   Vector2 tail = {cx - v.x * arm, cy - v.y * arm};
   Color col = (Color){90, 130, 200, 255};
   DrawLineEx(tail, tip, 3.0f, col);
 
   Vector2 perp = {-v.y, v.x};
-  float head = WEATHER_ICON_SIZE * 0.12f;
+  float head = icon_size * 0.12f;
   Vector2 left = {tip.x - v.x * head + perp.x * head, tip.y - v.y * head + perp.y * head};
   Vector2 right = {tip.x - v.x * head - perp.x * head, tip.y - v.y * head - perp.y * head};
   DrawTriangle(tip, left, right, col);
 }
 
-static void draw_wind_glyph(int x, int y) {
+static void draw_wind_glyph(int x, int y, float icon_size) {
   Color col = (Color){90, 130, 200, 255};
-  float cx = x + WEATHER_ICON_SIZE / 2.0f;
-  float cy = y + WEATHER_ICON_SIZE / 2.0f;
-  float half_w = WEATHER_ICON_SIZE * 0.3f;
+  float cx = x + icon_size / 2.0f;
+  float cy = y + icon_size / 2.0f;
+  float half_w = icon_size * 0.3f;
   const int segments = 10;
   for (int line = -1; line <= 1; line++) {
-    float row_y = cy + line * (WEATHER_ICON_SIZE * 0.18f);
-    float row_w = half_w * 2.0f - fabsf((float)line) * (WEATHER_ICON_SIZE * 0.08f);
+    float row_y = cy + line * (icon_size * 0.18f);
+    float row_w = half_w * 2.0f - fabsf((float)line) * (icon_size * 0.08f);
     Vector2 prev = {cx - row_w / 2.0f, row_y};
     for (int s = 1; s <= segments; s++) {
       float t = (float)s / segments;
@@ -132,54 +133,57 @@ static void draw_wind_glyph(int x, int y) {
   }
 }
 
-static void draw_rain_glyph(int x, int y) {
-  float cx = x + WEATHER_ICON_SIZE / 2.0f;
-  float cy = y + WEATHER_ICON_SIZE / 2.0f;
+static void draw_rain_glyph(int x, int y, float icon_size) {
+  float cx = x + icon_size / 2.0f;
+  float cy = y + icon_size / 2.0f;
   Color cloud_col = (Color){170, 175, 185, 255};
   Color drop_col = (Color){90, 130, 200, 255};
 
-  float cloud_y = cy - WEATHER_ICON_SIZE * 0.14f;
-  DrawCircle((int)(cx - WEATHER_ICON_SIZE * 0.14f), (int)cloud_y, WEATHER_ICON_SIZE * 0.12f, cloud_col);
-  DrawCircle((int)cx, (int)(cloud_y - WEATHER_ICON_SIZE * 0.06f), WEATHER_ICON_SIZE * 0.15f, cloud_col);
-  DrawCircle((int)(cx + WEATHER_ICON_SIZE * 0.15f), (int)cloud_y, WEATHER_ICON_SIZE * 0.11f, cloud_col);
+  float cloud_y = cy - icon_size * 0.14f;
+  DrawCircle((int)(cx - icon_size * 0.14f), (int)cloud_y, icon_size * 0.12f, cloud_col);
+  DrawCircle((int)cx, (int)(cloud_y - icon_size * 0.06f), icon_size * 0.15f, cloud_col);
+  DrawCircle((int)(cx + icon_size * 0.15f), (int)cloud_y, icon_size * 0.11f, cloud_col);
   Rectangle cloud_belly = {
-    cx - WEATHER_ICON_SIZE * 0.26f, cloud_y - WEATHER_ICON_SIZE * 0.02f,
-    WEATHER_ICON_SIZE * 0.52f, WEATHER_ICON_SIZE * 0.16f,
+    cx - icon_size * 0.26f, cloud_y - icon_size * 0.02f,
+    icon_size * 0.52f, icon_size * 0.16f,
   };
   DrawRectangleRec(cloud_belly, cloud_col);
 
   for (int i = -1; i <= 1; i++) {
-    float dx = cx + i * (WEATHER_ICON_SIZE * 0.16f);
-    float dy = cy + WEATHER_ICON_SIZE * 0.14f;
-    DrawLineEx((Vector2){dx, dy}, (Vector2){dx - WEATHER_ICON_SIZE * 0.05f, dy + WEATHER_ICON_SIZE * 0.16f}, 2.5f, drop_col);
+    float dx = cx + i * (icon_size * 0.16f);
+    float dy = cy + icon_size * 0.14f;
+    DrawLineEx((Vector2){dx, dy}, (Vector2){dx - icon_size * 0.05f, dy + icon_size * 0.16f}, 2.5f, drop_col);
   }
 }
 
 void draw_weather_bar(WeatherState *weather_state) {
-  int x = 10;
-  const int y = 10;
-  const int padding = 10;
+  float scale = topbar_scale();
+  float vscale = topbar_vertical_scale();
+  float icon_size = WEATHER_ICON_SIZE * vscale;
+  int x = (int)(10 * scale);
+  int y = (int)(10 * vscale);
+  int padding = (int)(10 * scale);
 
-  weather_state->hovered[WEATHER_SUNNY] = draw_weather_icon_frame(x, y, weather_state->current == WEATHER_SUNNY);
-  draw_sun_glyph(x, y);
+  weather_state->hovered[WEATHER_SUNNY] = draw_weather_icon_frame(x, y, icon_size, weather_state->current == WEATHER_SUNNY);
+  draw_sun_glyph(x, y, icon_size);
 
-  x += WEATHER_ICON_SIZE + padding;
-  weather_state->hovered[WEATHER_WINDY] = draw_weather_icon_frame(x, y, weather_state->current == WEATHER_WINDY);
-  draw_wind_glyph(x, y);
+  x += (int)(icon_size + padding);
+  weather_state->hovered[WEATHER_WINDY] = draw_weather_icon_frame(x, y, icon_size, weather_state->current == WEATHER_WINDY);
+  draw_wind_glyph(x, y, icon_size);
 
-  x += WEATHER_ICON_SIZE + padding;
-  weather_state->hovered[WEATHER_RAIN] = draw_weather_icon_frame(x, y, weather_state->current == WEATHER_RAIN);
-  draw_rain_glyph(x, y);
+  x += (int)(icon_size + padding);
+  weather_state->hovered[WEATHER_RAIN] = draw_weather_icon_frame(x, y, icon_size, weather_state->current == WEATHER_RAIN);
+  draw_rain_glyph(x, y, icon_size);
 
-  x += WEATHER_ICON_SIZE + padding;
-  weather_state->wind_lever_hovered = draw_weather_icon_frame(x, y, false);
-  draw_wind_direction_glyph(x, y, weather_state->wind_direction);
+  x += (int)(icon_size + padding);
+  weather_state->wind_lever_hovered = draw_weather_icon_frame(x, y, icon_size, false);
+  draw_wind_direction_glyph(x, y, icon_size, weather_state->wind_direction);
 
-  x += WEATHER_ICON_SIZE + padding;
-  DrawText(TextFormat("%.0f°C (U/D)", weather_state->temperature_celsius), x, y + WEATHER_ICON_SIZE / 2 - 10, 20, WHITE);
+  x += (int)(icon_size + padding);
+  DrawText(TextFormat("%.0f°C (U/D)", weather_state->temperature_celsius), x, (int)(y + icon_size / 2 - 10 * vscale), (int)(20 * vscale), WHITE);
 
-  x += 150;
-  DrawLineEx((Vector2){x, 0}, (Vector2){x, 65}, 2.0f, BLACK);
+  x += (int)(150 * scale);
+  DrawLineEx((Vector2){x, 0}, (Vector2){x, 65 * vscale}, 2.0f, BLACK);
 }
 
 static float rain_cooling_offset(int month) {

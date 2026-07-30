@@ -7,11 +7,16 @@ float min_float(float a, float b) {
 void init_sidebar_state(SidebarState* sidebar_state, const Texture_State *texture_state,
                         const int SIDEBAR_WIDTH, const int SIDEBAR_PADDING,
                         const int FONT_SIZE, const float ICON_WIDTH, const float ICON_HEIGHT) {
-  sidebar_state->SIDEBAR_WIDTH = SIDEBAR_WIDTH;
-  sidebar_state->SIDEBAR_PADDING = SIDEBAR_PADDING;
-  sidebar_state->FONT_SIZE = FONT_SIZE;
-  sidebar_state->ICON_WIDTH = ICON_WIDTH;
-  sidebar_state->ICON_HEIGHT = ICON_HEIGHT;
+  const float reference_screen_width = 1920.0f;
+  const float reference_icon_stack_height = 1120.0f;
+  float width_scale = (float)GetScreenWidth() / reference_screen_width;
+  float height_scale = (float)GetScreenHeight() / reference_icon_stack_height;
+
+  sidebar_state->SIDEBAR_WIDTH = (int)(SIDEBAR_WIDTH * width_scale);
+  sidebar_state->SIDEBAR_PADDING = (int)(SIDEBAR_PADDING * height_scale);
+  sidebar_state->FONT_SIZE = (int)(FONT_SIZE * height_scale);
+  sidebar_state->ICON_WIDTH = ICON_WIDTH * height_scale;
+  sidebar_state->ICON_HEIGHT = ICON_HEIGHT * height_scale;
   sidebar_state->SIDEBAR_HEIGHT = GetScreenHeight();
   sidebar_state->SIDEBAR_X = GetScreenWidth() - sidebar_state->SIDEBAR_WIDTH;
   sidebar_state->si_h1 = min_float(

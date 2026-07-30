@@ -150,5 +150,5 @@ void define_nature(ObjectArray* objects, Map *map, TileState tile_state, const T
 
   const int spawn_tx = gap_center_x - 30;
   const int spawn_ty = gap_center_x - 5;
-  spawn_debug_figures(objects, map, texture_state, spawn_tx, spawn_ty, 10000);
+  spawn_debug_figures(objects, map, texture_state, spawn_tx, spawn_ty, 100);
 }

@@ -9,6 +9,8 @@ map.
 
 ![Screencast](screencast.gif)
 
+![Screenshot](example.png)
+
 ## Features
 
 - **Isometric tile map** water, roads, and arable land.
