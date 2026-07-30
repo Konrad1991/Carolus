@@ -1,0 +1,6 @@
+src/main
+*.o
+*.d
+*.so
+*.so.*
+CLAUDE.md
