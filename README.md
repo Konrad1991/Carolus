@@ -7,7 +7,7 @@ Lay out fields and roads, grow crops through the seasons, react to soil and
 weather, and watch farmers path their way across a living, real-time-driven
 map.
 
-<video src="https://raw.githubusercontent.com/Konrad1991/Carolus/master/screencast.webm" controls width="600"></video>
+![Screencast](screencast.gif)
 
 ## Features
 
