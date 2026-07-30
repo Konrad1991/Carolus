@@ -9,7 +9,7 @@ map.
 
 ![Screencast](screencast.gif)
 
-![Screenshot](example.png)
+<img src="example.png" width="600" alt="Screenshot">
 
 ## Features
 
