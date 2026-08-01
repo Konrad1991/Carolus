@@ -177,6 +177,19 @@ open:
       needs a dedicated overlay
 - [x] Wind/grass-sway animation - done (oak, grass, wheat all sway with
       wind direction/weather already)
+- [x] Bug: weather scenarios (`WeatherScenarioState`/`weather_scenario.c`)
+      didn't repeat cleanly across consecutive in-game years - reported as
+      "perfect year back to back works so-so." Root cause was that none of
+      the scenarios ever looped `elapsed` back to the start once the
+      calendar rolled into a new year (`update_perfect_year` gave up after
+      `SECONDS_PER_MONTH * 4` and forced `WEATHER_SUNNY` forever;
+      `run_scenario_phases` flatlined on its last, long sunny phase).
+      Fixed: `WeatherScenarioState.last_seen_month` tracks the calendar
+      month each frame; when it drops (month wraps from 11 back to 0),
+      `update_weather_scenario` resets `elapsed`/`sub_timer`, restarting
+      the scenario's script for the new year. `update_weather_scenario`
+      now takes `current_month` (passed as `season_state.month` from
+      `main.c`).
 
 ## Bridges
 
@@ -244,7 +257,8 @@ worked on alongside this, tree-species-first.
 
 ## Crops
 
-- [ ] Wheat, barley, rye, oats, spelt
+- [x] Summer wheat
+- [ ] Winter wheat
 - [ ] Lentils, lettuce
 - [ ] Turnips/rutabaga, cabbage, onions
 - [ ] Fava beans
@@ -280,6 +294,25 @@ Currently working on assets for the buildings below.
 
 ## Farming Mechanics
 
+- [x] Sowing should cost seed grain: placing a field
+      (`build_object.c`, `update_field_action`) set `field_condition =
+      SOWED` for free before, nothing deducted `mansus->goods.grains`, so
+      sowing was unlimited regardless of stock. Fixed: field placement now
+      costs a flat `SEED_GRAIN_COST` (currently 112, tuned by hand against
+      how low harvest yields used to be - still probably on the generous
+      side but anything stricter starts feeling too harsh), checked both
+      in the Mansus eligibility highlight (red if not enough grain) and
+      again before actually placing the field (blocks it if short,
+      otherwise deducted). New Mansions start with `SEED_GRAIN_COST`
+      grains so the very first field isn't a chicken-and-egg deadlock.
+      Still open:
+      `FIGURE_ACTION_SOW` only drives the walk animation/speed
+      (`update_figure.c`) - it doesn't gate the `field_condition`
+      transition, that still happens instantly on field placement rather
+      than through an actual farmer sowing action; and there's still no
+      re-sowing path once a field goes FALLOW (see Field Growth States
+      above), so this only covers the one-time initial sowing per Mansus
+      for now.
 - [ ] Fallow rotation (Brache): fields are always split in two
       (fallow/cultivated), only half is farmed per year — later maybe a
       three-field system
