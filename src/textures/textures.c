@@ -9,6 +9,9 @@ static const int FIGURE_ACTION_FRAME_COUNT[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_DIG]    = 9,
   [FIGURE_ACTION_HAMMER] = 9,
   [FIGURE_ACTION_MOW]    = 9,
+  [FIGURE_ACTION_CARRY_STAND] = 1,
+  [FIGURE_ACTION_CARRY_PICK]  = 9,
+  [FIGURE_ACTION_CARRY_WALK]  = 8,
 };
 
 int figure_action_frame_count(FigureAction action) {
@@ -23,6 +26,22 @@ static const char *FIGURE_ACTION_FOLDER[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_DIG]    = "digging",
   [FIGURE_ACTION_HAMMER] = "hammering",
   [FIGURE_ACTION_MOW]    = "mowing",
+  [FIGURE_ACTION_CARRY_STAND] = "wearing_basket",
+  [FIGURE_ACTION_CARRY_PICK]  = "wearing_basket",
+  [FIGURE_ACTION_CARRY_WALK]  = "wearing_basket",
+};
+
+// animation subfolder name, only used when FIGURE_ACTION_FRAME_COUNT > 1;
+// matches FIGURE_ACTION_FOLDER except where several actions share one pose folder (wearing_basket)
+static const char *FIGURE_ACTION_ANIM_SUBDIR[FIGURE_ACTION_COUNT] = {
+  [FIGURE_ACTION_WALK]   = "walking",
+  [FIGURE_ACTION_SOW]    = "sowing",
+  [FIGURE_ACTION_CHOP]   = "chopping",
+  [FIGURE_ACTION_DIG]    = "digging",
+  [FIGURE_ACTION_HAMMER] = "hammering",
+  [FIGURE_ACTION_MOW]    = "mowing",
+  [FIGURE_ACTION_CARRY_PICK] = "pick",
+  [FIGURE_ACTION_CARRY_WALK] = "walking",
 };
 
 static const float FIGURE_ACTION_SCALE_CORRECTION[FIGURE_ACTION_COUNT] = {
@@ -33,6 +52,9 @@ static const float FIGURE_ACTION_SCALE_CORRECTION[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_DIG]    = 0.9f,  // 54x60 px
   [FIGURE_ACTION_HAMMER] = 0.77f, // 41x72 px
   [FIGURE_ACTION_MOW]    = 0.9f,  // 43x60 px
+  [FIGURE_ACTION_CARRY_STAND] = 0.9f, // 29x60 px
+  [FIGURE_ACTION_CARRY_PICK]  = 0.9f, // 29x60 px
+  [FIGURE_ACTION_CARRY_WALK]  = 0.9f, // 29x60 px
 };
 
 static const char *FIGURE_DIR_COMPASS[FIGURE_DIR_COUNT] = {
@@ -57,7 +79,7 @@ static void load_convention_figure_action(Texture_State *texture_state, const ch
     for (int f = 0; f < frame_count; f++) {
       if (animated) {
         snprintf(path, sizeof(path), "%s%s/animations/%s/%s/frame_%03d.png",
-                 base_dir, FIGURE_ACTION_FOLDER[action], FIGURE_ACTION_FOLDER[action], dir_name, f);
+                 base_dir, FIGURE_ACTION_FOLDER[action], FIGURE_ACTION_ANIM_SUBDIR[action], dir_name, f);
       } else {
         snprintf(path, sizeof(path), "%s%s/rotations/%s.png",
                  base_dir, FIGURE_ACTION_FOLDER[action], dir_name);
@@ -168,6 +190,12 @@ static const float WHEAT_TUFT_SCALE = 0.4f;
 
 static const Vector2 PUDDLE_ANCHOR = {0.5f, 1.0f};
 static const float PUDDLE_SCALE = 1.0f;
+
+static const Vector2 OAK_TRUNK_ANCHOR = {0.5f, 1.0f};
+static const float OAK_TRUNK_SCALE = 1.0f;
+
+static const Vector2 OAK_BEAM_ANCHOR = {0.5f, 1.0f};
+static const float OAK_BEAM_SCALE = 1.0f;
 
 static void load_grass_tuft(Texture_State *texture_state, const char *grass_tuft_dir, int season) {
   char path[512];
@@ -309,6 +337,20 @@ static void load_signs(Texture_State *texture_state, const char *signs_dir) {
   scythe_cursor->anchor = CURSOR_ANCHOR;
   scythe_cursor->scale = CURSOR_SCALE;
   SetTextureFilter(scythe_cursor->tex, TEXTURE_FILTER_POINT);
+
+  snprintf(path, sizeof(path), "%sspade.png", signs_dir);
+  SpriteAsset *dig_cursor = &texture_state->dig_cursor;
+  dig_cursor->tex = LoadTexture(path);
+  dig_cursor->anchor = CURSOR_ANCHOR;
+  dig_cursor->scale = CURSOR_SCALE;
+  SetTextureFilter(dig_cursor->tex, TEXTURE_FILTER_POINT);
+
+  snprintf(path, sizeof(path), "%sbasket.png", signs_dir);
+  SpriteAsset *sow_cursor = &texture_state->sow_cursor;
+  sow_cursor->tex = LoadTexture(path);
+  sow_cursor->anchor = CURSOR_ANCHOR;
+  sow_cursor->scale = CURSOR_SCALE;
+  SetTextureFilter(sow_cursor->tex, TEXTURE_FILTER_POINT);
 }
 
 static void load_puddle(Texture_State *texture_state, const char *puddle_dir) {
@@ -320,6 +362,32 @@ static void load_puddle(Texture_State *texture_state, const char *puddle_dir) {
     sprite->tex = LoadTexture(path);
     sprite->anchor = PUDDLE_ANCHOR;
     sprite->scale = PUDDLE_SCALE;
+    SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+  }
+}
+
+static void load_oak_trunk(Texture_State *texture_state, const char *oak_trunk_dir) {
+  char path[512];
+  for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
+    const char *dir_name = FIGURE_DIR_COMPASS[d];
+    snprintf(path, sizeof(path), "%srotations/%s.png", oak_trunk_dir, dir_name);
+    SpriteAsset *sprite = &texture_state->oak_trunk[d];
+    sprite->tex = LoadTexture(path);
+    sprite->anchor = OAK_TRUNK_ANCHOR;
+    sprite->scale = OAK_TRUNK_SCALE;
+    SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+  }
+}
+
+static void load_oak_beam(Texture_State *texture_state, const char *oak_beam_dir) {
+  char path[512];
+  for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
+    const char *dir_name = FIGURE_DIR_COMPASS[d];
+    snprintf(path, sizeof(path), "%srotations/%s.png", oak_beam_dir, dir_name);
+    SpriteAsset *sprite = &texture_state->oak_beam[d];
+    sprite->tex = LoadTexture(path);
+    sprite->anchor = OAK_BEAM_ANCHOR;
+    sprite->scale = OAK_BEAM_SCALE;
     SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
   }
 }
@@ -398,6 +466,8 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   IMG_PATH(oak_spring, "oak_spring/");
   IMG_PATH(oak_summer, "oak_summer/");
   IMG_PATH(oak_autumn, "oak_autumn/");
+  IMG_PATH(oak_trunk_dir, "oak_trunk/");
+  IMG_PATH(oak_beam_dir, "oak_beam/");
 
   IMG_PATH(wheat_young_dir, "wheat_young/");
   IMG_PATH(wheat_middle_dir, "wheat_middle/");
@@ -468,6 +538,8 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
                   wheat_overripe_dir, wheat_harvested_dir, wheat_destroyed_dir);
   load_cloud(texture_state, cloud_dir);
   load_puddle(texture_state, puddle_dir);
+  load_oak_trunk(texture_state, oak_trunk_dir);
+  load_oak_beam(texture_state, oak_beam_dir);
   load_boundary_stone(texture_state, boundary_stone_dir);
   load_wheat_sheaf(texture_state, wheat_sheaf_dir);
   load_signs(texture_state, signs_dir);
@@ -524,8 +596,12 @@ void free_texture_state(Texture_State* texture_state) {
   UnloadTexture(texture_state->axe_cursor.tex);
   UnloadTexture(texture_state->plow_cursor.tex);
   UnloadTexture(texture_state->scythe_cursor.tex);
+  UnloadTexture(texture_state->dig_cursor.tex);
+  UnloadTexture(texture_state->sow_cursor.tex);
   for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
     UnloadTexture(texture_state->puddle[d].tex);
+    UnloadTexture(texture_state->oak_trunk[d].tex);
+    UnloadTexture(texture_state->oak_beam[d].tex);
     for (int f = 0; f < FIGURE_MAX_FRAMES; f++) {
       UnloadTexture(texture_state->cloud_drift[d][f].tex);
     }

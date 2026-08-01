@@ -7,12 +7,15 @@
 #include "raylib.h"
 #include <stdlib.h>
 
-static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodFieldArray* flood_field_state) {
+static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodFieldArray* flood_field_state, GameState *game_state) {
   if (fig->figure.flood_field_idx >= 0) {
     figure_release_reservation(map, fig);
     flood_field_array_release(flood_field_state, fig->figure.flood_field_idx);
     fig->figure.flood_field_idx = -1;
+  } else if (fig->figure.direct_walking) {
+    figure_release_reservation(map, fig);
   }
+  fig->figure.direct_walking = false;
   fig->figure.progress = 0.0f;
   fig->figure.prev_tile = -1;
   fig->figure.best_distance_to_target = -1;
@@ -25,35 +28,54 @@ static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodF
   fig->figure.plow_route.phase = PLOW_PHASE_NONE;
   fig->figure.plowing = false;
   fig->figure.harvest_route.phase = HARVEST_PHASE_NONE;
+  fig->figure.sow_route.phase = SOW_PHASE_NONE;
+  fig->figure.dig_route.phase = DIG_PHASE_NONE;
+  fig->figure.wood_route.phase = WOOD_PHASE_NONE;
+  release_field_lock(game_state, fig->id);
 }
 
-static void selected_figures_do(const Selection *sel, ObjectArray *objects, FigureAction action, Map *map, FloodFieldArray* flood_field_state) {
+static void selected_figures_do(const Selection *sel, ObjectArray *objects, FigureAction action, Map *map, FloodFieldArray* flood_field_state, GameState *game_state) {
   for (int i = 0; i < objects->count; i++) {
     if (objects->data[i].kind == OBJECT_FIGURE && selection_contains(sel, objects->data[i].id)) {
-      set_figure_action(&objects->data[i], action, map, flood_field_state);
+      set_figure_action(&objects->data[i], action, map, flood_field_state, game_state);
     }
   }
 }
 
-static bool find_field_at(const GameState *game_state, int tx, int ty, int *min_tx, int *max_tx, int *min_ty, int *max_ty) {
+Field *find_field_at(GameState *game_state, int tx, int ty, int *out_mansus_idx) {
   for (int mi = 0; mi < game_state->mansen.count; mi++) {
-    const Mansus *m = &game_state->mansen.data[mi];
+    Mansus *m = &game_state->mansen.data[mi];
     for (int fi = 0; fi < m->fields.count; fi++) {
-      const Field *f = &m->fields.data[fi];
+      Field *f = &m->fields.data[fi];
       if (tx < f->corners_field[0][0] || tx > f->corners_field[1][0]) continue;
       if (ty < f->corners_field[0][1] || ty > f->corners_field[1][1]) continue;
-      *min_tx = f->corners_field[0][0];
-      *min_ty = f->corners_field[0][1];
-      *max_tx = f->corners_field[1][0];
-      *max_ty = f->corners_field[1][1];
-      return true;
+      *out_mansus_idx = mi;
+      return f;
     }
   }
-  return false;
+  return NULL;
 }
 
-static void start_plow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                             int min_tx, int max_tx, int min_ty, int max_ty) {
+// Releases the lock this figure holds on whatever field it was working, if any.
+// Called before starting a new route and whenever a figure's route is interrupted,
+// so a field never stays locked once nobody is actually working it anymore.
+void release_field_lock(GameState *game_state, unsigned int figure_id) {
+  for (int mi = 0; mi < game_state->mansen.count; mi++) {
+    Mansus *m = &game_state->mansen.data[mi];
+    for (int fi = 0; fi < m->fields.count; fi++) {
+      Field *f = &m->fields.data[fi];
+      if (f->worked_by_figure_id == figure_id) f->worked_by_figure_id = 0;
+    }
+  }
+}
+
+void start_plow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
+                             GameState *game_state, Field *field) {
+  release_field_lock(game_state, fig->id);
+  field->worked_by_figure_id = fig->id;
+
+  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
+  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
   bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
   bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
   int entry_tx = near_min_tx ? min_tx : max_tx;
@@ -84,8 +106,54 @@ static bool is_farmer_species(FigureSpecies species) {
   return species == FIGURE_SPECIES_FARMER1 || species == FIGURE_SPECIES_FARMER2;
 }
 
-static void start_harvest_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                                int min_tx, int max_tx, int min_ty, int max_ty) {
+static const Familia MANSUS_LEVEL_FAMILIA[] = {
+  [HOUSLER]        = {.children = 1, .adult_children = 0, .elders = 0, .farmhands = 0, .maids = 0},
+  [QUARTER_HUFNER] = {.children = 2, .adult_children = 0, .elders = 0, .farmhands = 0, .maids = 0},
+  [HALF_HUFNER]    = {.children = 3, .adult_children = 1, .elders = 1, .farmhands = 1, .maids = 0},
+  [FULLHUFNER]     = {.children = 4, .adult_children = 1, .elders = 1, .farmhands = 1, .maids = 1},
+  [RICH_FARMER]    = {.children = 5, .adult_children = 2, .elders = 1, .farmhands = 2, .maids = 2},
+};
+
+static bool figure_already_assigned(const GameState *game_state, unsigned int figure_id) {
+  for (int i = 0; i < game_state->mansen.count; i++) {
+    if (game_state->mansen.data[i].farmer_object_id == figure_id) return true;
+    if (game_state->mansen.data[i].farmhand_object_id == figure_id) return true;
+  }
+  return false;
+}
+
+// FARMER1 (straw hat) becomes the Bauer (head of household), FARMER2 becomes the Knecht (farmhand).
+static bool assign_figures_to_mansus(const Selection *sel, ObjectArray *objects, GameState *game_state, int mansus_idx) {
+  Mansus *mansus = &game_state->mansen.data[mansus_idx];
+  bool assigned_any = false;
+
+  for (int i = 0; i < objects->count; i++) {
+    Object *fig = &objects->data[i];
+    if (fig->kind != OBJECT_FIGURE || !selection_contains(sel, fig->id)) continue;
+    if (!is_farmer_species(fig->figure.species)) continue;
+    if (figure_already_assigned(game_state, fig->id)) continue;
+
+    if (fig->figure.species == FIGURE_SPECIES_FARMER1 && mansus->farmer_object_id == 0) {
+      mansus->farmer_object_id = fig->id;
+      mansus->familia = MANSUS_LEVEL_FAMILIA[mansus->mansus_level];
+      mansus->assign_flash_timer = MANSUS_ASSIGN_FLASH_SECONDS;
+      assigned_any = true;
+    } else if (fig->figure.species == FIGURE_SPECIES_FARMER2 && mansus->farmhand_object_id == 0) {
+      mansus->farmhand_object_id = fig->id;
+      mansus->assign_flash_timer = MANSUS_ASSIGN_FLASH_SECONDS;
+      assigned_any = true;
+    }
+  }
+  return assigned_any;
+}
+
+void start_harvest_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
+                                GameState *game_state, Field *field) {
+  release_field_lock(game_state, fig->id);
+  field->worked_by_figure_id = fig->id;
+
+  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
+  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
   bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
   bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
   int entry_tx = near_min_tx ? min_tx : max_tx;
@@ -110,32 +178,105 @@ static void start_harvest_route(Object *fig, Map *map, FloodFieldArray *flood_fi
     route->sweep_dir = near_min_ty ? 1 : -1;
   }
   route->mow_timer = 0.0f;
+  route->mowing_done = false;
+
+  int stand_tx, stand_ty;
+  harvest_route_stand_tile(route, &stand_tx, &stand_ty);
+  figure_walk_to(fig, map, flood_field_state, stand_tx, stand_ty);
+  fig->figure.gather_tx = entry_tx;
+  fig->figure.gather_ty = entry_ty;
+}
+
+void start_dig_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
+                            GameState *game_state, Field *field) {
+  release_field_lock(game_state, fig->id);
+  field->worked_by_figure_id = fig->id;
+
+  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
+  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
+  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
+  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
+  int entry_tx = near_min_tx ? min_tx : max_tx;
+  int entry_ty = near_min_ty ? min_ty : max_ty;
+
+  DigRoute *route = &fig->figure.dig_route;
+  route->phase = DIG_PHASE_WALKING;
+  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
+  route->min_tx = min_tx;
+  route->max_tx = max_tx;
+  route->min_ty = min_ty;
+  route->max_ty = max_ty;
+  if (route->row_along_tx) {
+    route->row = entry_ty;
+    route->step_dir = near_min_ty ? 1 : -1;
+    route->cursor = entry_tx;
+    route->sweep_dir = near_min_tx ? 1 : -1;
+  } else {
+    route->row = entry_tx;
+    route->step_dir = near_min_tx ? 1 : -1;
+    route->cursor = entry_ty;
+    route->sweep_dir = near_min_ty ? 1 : -1;
+  }
+  route->dig_timer = 0.0f;
 
   figure_walk_to(fig, map, flood_field_state, entry_tx, entry_ty);
 }
 
+void start_sow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
+                            GameState *game_state, Mansus *mansus, Field *field) {
+  release_field_lock(game_state, fig->id);
+  field->worked_by_figure_id = fig->id;
+  mansus->goods.grains -= FIELD_SOW_GRAIN_COST;
+
+  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
+  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
+  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
+  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
+  int entry_tx = near_min_tx ? min_tx : max_tx;
+  int entry_ty = near_min_ty ? min_ty : max_ty;
+
+  SowRoute *route = &fig->figure.sow_route;
+  route->phase = SOW_PHASE_WALKING;
+  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
+  route->min_tx = min_tx;
+  route->max_tx = max_tx;
+  route->min_ty = min_ty;
+  route->max_ty = max_ty;
+  if (route->row_along_tx) {
+    route->row = entry_ty;
+    route->step_dir = near_min_ty ? 1 : -1;
+    route->cursor = entry_tx;
+    route->sweep_dir = near_min_tx ? 1 : -1;
+  } else {
+    route->row = entry_tx;
+    route->step_dir = near_min_tx ? 1 : -1;
+    route->cursor = entry_ty;
+    route->sweep_dir = near_min_ty ? 1 : -1;
+  }
+
+  // Sowing walks the figure onto the tile itself, unlike harvesting's stand-beside offset.
+  figure_walk_to(fig, map, flood_field_state, entry_tx, entry_ty);
+}
+
 static int calc_n_walkers(const Selection* sel, ObjectArray* objects,
-                          const bool field_found, const bool is_tree_target,
+                          const bool is_tree_target,
                           Map* map, FloodFieldArray* flood_field_state,
-                          const int field_min_tx, const int field_max_tx,
-                          const int field_min_ty, const int field_max_ty,
+                          GameState *game_state, Field *field,
                           const int tx, const int ty) {
   int n_walkers = 0;
   for (int i = 0; i < objects->count; i++) {
     if (objects->data[i].kind != OBJECT_FIGURE || !selection_contains(sel, objects->data[i].id)) continue;
+    unsigned int fig_id = objects->data[i].id;
 
-    if (field_found && objects->data[i].figure.species == FIGURE_SPECIES_OX) {
-      start_plow_route(&objects->data[i], map, flood_field_state, field_min_tx, field_max_tx, field_min_ty, field_max_ty);
-      continue;
-    }
-    if (field_found && is_farmer_species(objects->data[i].figure.species)) {
-      start_harvest_route(&objects->data[i], map, flood_field_state, field_min_tx, field_max_tx, field_min_ty, field_max_ty);
+    if (field && objects->data[i].figure.species == FIGURE_SPECIES_OX) {
+      if (field->worked_by_figure_id != 0 && field->worked_by_figure_id != fig_id) continue;
+      start_plow_route(&objects->data[i], map, flood_field_state, game_state, field);
       continue;
     }
     bool adjacent = is_tree_target &&
       abs(objects->data[i].tx - tx) <= 1 && abs(objects->data[i].ty - ty) <= 1;
     if (adjacent) {
-      set_figure_action(&objects->data[i], FIGURE_ACTION_CHOP, map, flood_field_state);
+      set_figure_action(&objects->data[i], FIGURE_ACTION_CHOP, map, flood_field_state, game_state);
       objects->data[i].figure.gather_tx = tx;
       objects->data[i].figure.gather_ty = ty;
     } else {
@@ -145,12 +286,13 @@ static int calc_n_walkers(const Selection* sel, ObjectArray* objects,
   return n_walkers;
 }
 
-static void update_figure_attributes(ObjectArray* objects,
+static void update_figure_attributes(ObjectArray* objects, GameState *game_state,
                                      const int i, const int field_idx,
                                      const int my_target_tx, const int my_target_ty,
                                      const int tx, const int ty,
                                      const bool lands_adjacent) {
   objects->data[i].figure.flood_field_idx = field_idx;
+  objects->data[i].figure.direct_walking = false;
   objects->data[i].figure.target_tx = my_target_tx;
   objects->data[i].figure.target_ty = my_target_ty;
   objects->data[i].figure.prev_tile = -1;
@@ -167,41 +309,42 @@ static void update_figure_attributes(ObjectArray* objects,
   }
   if (is_farmer_species(objects->data[i].figure.species)) {
     objects->data[i].figure.harvest_route.phase = HARVEST_PHASE_NONE;
+    objects->data[i].figure.sow_route.phase = SOW_PHASE_NONE;
+    objects->data[i].figure.dig_route.phase = DIG_PHASE_NONE;
+    objects->data[i].figure.wood_route.phase = WOOD_PHASE_NONE;
   }
+  release_field_lock(game_state, objects->data[i].id);
 }
 
 void command_selected_units(const Selection* sel, Map* map, TileState tile_state, ObjectArray *objects, FloodFieldArray* flood_field_state, GameState *game_state, bool any_hovered) {
-  if (IsKeyPressed(KEY_D)) selected_figures_do(sel, objects, FIGURE_ACTION_DIG, map, flood_field_state);
-  if (IsKeyPressed(KEY_C)) selected_figures_do(sel, objects, FIGURE_ACTION_CHOP, map, flood_field_state);
-  if (IsKeyPressed(KEY_H)) selected_figures_do(sel, objects, FIGURE_ACTION_HAMMER, map, flood_field_state);
-  if (IsKeyPressed(KEY_M)) selected_figures_do(sel, objects, FIGURE_ACTION_MOW, map, flood_field_state);
-  if (IsKeyPressed(KEY_S)) {
-    for (int i = 0; i < objects->count; i++) {
-      if (objects->data[i].kind != OBJECT_FIGURE || !selection_contains(sel, objects->data[i].id)) continue;
-      objects->data[i].figure.action = FIGURE_ACTION_SOW;
-      objects->data[i].figure.action_timer = 0.0f;
-    }
-  }
+  if (IsKeyPressed(KEY_D)) selected_figures_do(sel, objects, FIGURE_ACTION_DIG, map, flood_field_state, game_state);
+  if (IsKeyPressed(KEY_C)) selected_figures_do(sel, objects, FIGURE_ACTION_CHOP, map, flood_field_state, game_state);
+  if (IsKeyPressed(KEY_H)) selected_figures_do(sel, objects, FIGURE_ACTION_HAMMER, map, flood_field_state, game_state);
+  if (IsKeyPressed(KEY_M)) selected_figures_do(sel, objects, FIGURE_ACTION_MOW, map, flood_field_state, game_state);
 
   if (sel->count == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || any_hovered) return;
 
   Vector2 current = GetMousePosition();
-  const int tx = screen_to_tile_x(tile_state, current.x, current.y);
-  const int ty = screen_to_tile_y(tile_state, current.x, current.y);
+  int tree_idx = find_tree_at_screen_pos(objects, tile_state, current);
+  bool is_tree_target = tree_idx >= 0;
+  const int tx = is_tree_target ? objects->data[tree_idx].tx : screen_to_tile_x(tile_state, current.x, current.y);
+  const int ty = is_tree_target ? objects->data[tree_idx].ty : screen_to_tile_y(tile_state, current.x, current.y);
   Tile *target_tile = map_tile(map, tx, ty);
   if (!target_tile) return;
 
-  int field_min_tx, field_max_tx, field_min_ty, field_max_ty;
-  bool field_found = target_tile->type == TILE_SOIL &&
-    find_field_at(game_state, tx, ty, &field_min_tx, &field_max_tx, &field_min_ty, &field_max_ty);
+  if (!is_tree_target && target_tile->type == TILE_MANSUSYARD) {
+    int mansus_idx = find_mansus_at(game_state, tx, ty);
+    if (mansus_idx >= 0 && assign_figures_to_mansus(sel, objects, game_state, mansus_idx)) return;
+  }
 
-  int tree_idx = find_object_at_tile(objects, tx, ty);
-  bool is_tree_target = tree_idx >= 0 && objects->data[tree_idx].kind == OBJECT_TREE;
+  bool on_field_ground = !is_tree_target && (target_tile->type == TILE_SOIL || target_tile->type == TILE_GRASS);
+  int field_mansus_idx = -1;
+  Field *field = on_field_ground ? find_field_at(game_state, tx, ty, &field_mansus_idx) : NULL;
+  bool field_found = field != NULL;
 
-  int n_walkers = calc_n_walkers(sel, objects, field_found, is_tree_target,
+  int n_walkers = calc_n_walkers(sel, objects, is_tree_target,
                                  map, flood_field_state,
-                                 field_min_tx, field_max_tx, field_min_ty, field_max_ty,
-                                 tx, ty);
+                                 game_state, field, tx, ty);
   if (n_walkers == 0) return;
 
   int *target_x = malloc(n_walkers * sizeof(int));
@@ -212,10 +355,10 @@ void command_selected_units(const Selection* sel, Map* map, TileState tile_state
   for (int t = 0; t < n_targets; t++) {
     figure_nodes[t] = node_index(target_x[t], target_y[t], map->w);
   }
-  FloodField field = flood_fill(map, figure_nodes, n_targets, true);
-  field.n_figures = n_targets;
-  field.active = true;
-  int field_idx = flood_field_array_push(flood_field_state, field);
+  FloodField flood_field = flood_fill(map, figure_nodes, n_targets, true);
+  flood_field.n_figures = n_targets;
+  flood_field.active = true;
+  int field_idx = flood_field_array_push(flood_field_state, flood_field);
   free(figure_nodes);
 
   bool *target_used = calloc(n_targets, sizeof(bool));
@@ -223,7 +366,6 @@ void command_selected_units(const Selection* sel, Map* map, TileState tile_state
   for (int i = 0; i < objects->count; i++) {
     if (objects->data[i].kind != OBJECT_FIGURE || !selection_contains(sel, objects->data[i].id)) continue;
     if (field_found && objects->data[i].figure.species == FIGURE_SPECIES_OX) continue;
-    if (field_found && is_farmer_species(objects->data[i].figure.species)) continue;
     bool adjacent = is_tree_target && abs(objects->data[i].tx - tx) <= 1 && abs(objects->data[i].ty - ty) <= 1;
     if (adjacent) continue;
 
@@ -250,7 +392,7 @@ void command_selected_units(const Selection* sel, Map* map, TileState tile_state
     if (objects->data[i].figure.flood_field_idx >= 0) {
       flood_field_array_release(flood_field_state, objects->data[i].figure.flood_field_idx);
     }
-    update_figure_attributes(objects, i, field_idx, my_target_tx, my_target_ty, tx, ty, lands_adjacent);
+    update_figure_attributes(objects, game_state, i, field_idx, my_target_tx, my_target_ty, tx, ty, lands_adjacent);
   }
 
   free(target_used);

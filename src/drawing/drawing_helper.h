@@ -19,6 +19,7 @@ Rectangle calc_object_screen_rectangle(TileState tile_state, const Object* o);
 void draw_object_slice(TileState tile_state, const Object *o, Color tint, float slice_from, float slice_to);
 void draw_object(TileState tile_state, const Object *o, Color tint);
 int find_object_at_tile(const ObjectArray *objects, int tx, int ty);
+int find_tree_at_screen_pos(const ObjectArray *objects, TileState tile_state, Vector2 mouse);
 
 void draw_relief_tile_tinted(int sx, int sy, const Texture2D *tex, float scale, Color tint);
 void draw_ground_tile_tinted(TileState tile_state, int sx, int sy, const Texture2D *tex, float scale, Color tint);

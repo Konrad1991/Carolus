@@ -37,7 +37,7 @@ static void carve_stream(Map *map, int base_x, float amplitude, float frequency,
 }
 
 void scatter_trees(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
-  int n_trees = (map->w * map->h) / 200;
+  int n_trees = (map->w * map->h) / 100;
   for (int i = 0; i < n_trees; i++) {
     int tx = GetRandomValue(0, map->w - 1);
     int ty = GetRandomValue(0, map->h - 1);

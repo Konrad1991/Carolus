@@ -4,6 +4,7 @@
 #include "map/map.h"
 #include "raylib.h"
 #include "utils/game_time.h"
+#include <stdlib.h>
 
 static const float PUDDLE_LIFETIME_MIN = 24.0f;
 static const float PUDDLE_LIFETIME_MAX = 45.0f;
@@ -24,20 +25,23 @@ static float random_lifetime(float temperature_celsius) {
   return (float)GetRandomValue(lo, hi);
 }
 
-static int count_puddles(const ObjectArray *objects) {
-  int n = 0;
-  for (int i = 0; i < objects->count; i++) {
-    if (objects->data[i].kind == OBJECT_PUDDLE) n++;
+// Active puddles are tracked by id here so decay/spawn only ever touch this
+// small list instead of scanning the whole (potentially huge) ObjectArray.
+static unsigned int *g_active_puddle_ids = NULL;
+static int g_puddle_count = 0;
+static int g_puddle_capacity = 0;
+
+static void track_puddle(unsigned int id) {
+  if (g_puddle_count == g_puddle_capacity) {
+    g_puddle_capacity = g_puddle_capacity == 0 ? 64 : g_puddle_capacity * 2;
+    g_active_puddle_ids = realloc(g_active_puddle_ids, g_puddle_capacity * sizeof(unsigned int));
   }
-  return n;
+  g_active_puddle_ids[g_puddle_count++] = id;
 }
 
-static bool tile_has_puddle(const ObjectArray *objects, int tx, int ty) {
-  for (int i = 0; i < objects->count; i++) {
-    const Object *o = &objects->data[i];
-    if (o->kind == OBJECT_PUDDLE && o->tx == tx && o->ty == ty) return true;
-  }
-  return false;
+static void untrack_puddle(int list_index) {
+  g_active_puddle_ids[list_index] = g_active_puddle_ids[g_puddle_count - 1];
+  g_puddle_count--;
 }
 
 static void try_spawn_puddle(ObjectArray *objects, Map *map, Texture_State *texture_state, float temperature_celsius) {
@@ -47,11 +51,12 @@ static void try_spawn_puddle(ObjectArray *objects, Map *map, Texture_State *text
     Tile *t = map_tile(map, tx, ty);
     if (!t || t->occupied) continue;
     if (t->type != TILE_GRASS && t->type != TILE_SOIL) continue;
-    if (tile_has_puddle(objects, tx, ty)) continue;
+    if (t->has_puddle) continue;
 
     FigureDirection dir = (FigureDirection)tile_variant(tx, ty, FIGURE_DIR_COUNT);
     float base_scale = texture_state->puddle[dir].scale;
     Object puddle = {
+      .id = allocate_object_id(),
       .sprite = texture_state->puddle[dir],
       .tx = tx, .ty = ty, .z = t->z,
       .footprint_w = 1, .footprint_h = 1,
@@ -63,6 +68,8 @@ static void try_spawn_puddle(ObjectArray *objects, Map *map, Texture_State *text
     puddle.puddle.lifetime_remaining = lifetime;
     puddle.puddle.base_scale = base_scale;
     object_array_push(objects, puddle);
+    t->has_puddle = true;
+    track_puddle(puddle.id);
     return;
   }
 }
@@ -70,13 +77,20 @@ static void try_spawn_puddle(ObjectArray *objects, Map *map, Texture_State *text
 void update_puddles(ObjectArray *objects, Map *map, Texture_State *texture_state, const WeatherState *weather_state) {
   float dt = game_delta_time();
 
-  for (int i = objects->count - 1; i >= 0; i--) {
-    Object *o = &objects->data[i];
-    if (o->kind != OBJECT_PUDDLE) continue;
+  for (int i = g_puddle_count - 1; i >= 0; i--) {
+    int idx = object_array_find_by_id(objects, g_active_puddle_ids[i]);
+    if (idx < 0) {
+      untrack_puddle(i);
+      continue;
+    }
+    Object *o = &objects->data[idx];
 
     o->puddle.lifetime_remaining -= dt;
     if (o->puddle.lifetime_remaining <= 0.0f) {
-      object_array_remove_swap(objects, i);
+      Tile *t = map_tile(map, o->tx, o->ty);
+      if (t) t->has_puddle = false;
+      object_array_remove_swap(objects, idx);
+      untrack_puddle(i);
       continue;
     }
     float t = o->puddle.lifetime_remaining / o->puddle.lifetime_total;
@@ -85,7 +99,7 @@ void update_puddles(ObjectArray *objects, Map *map, Texture_State *texture_state
 
   if (weather_state->current != WEATHER_RAIN) return;
   int target = (map->w * map->h) / PUDDLE_DENSITY_DIVISOR;
-  if (count_puddles(objects) < target) {
+  if (g_puddle_count < target) {
     try_spawn_puddle(objects, map, texture_state, weather_state->temperature_celsius);
   }
 }

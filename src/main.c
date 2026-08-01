@@ -12,9 +12,7 @@
 #include "drawing/drawing_helper.h"
 #include "drawing/update_tile_state.h"
 #include "drawing/update_figure.h"
-#include "drawing/update_grass.h"
-#include "drawing/update_tree.h"
-#include "drawing/update_wheat.h"
+#include "drawing/update_scenery_sway.h"
 #include "drawing/build_object.h"
 #include "drawing/build_road.h"
 #include "flood_fill/flood_fill.h"
@@ -30,6 +28,7 @@
 #include "soil/soil.h"
 #include "soil/soil_overlay.h"
 #include "farming/crop_growth.h"
+#include "farming/field_work.h"
 #include "utils/game_time.h"
 #include "minimap/minimap.h"
 
@@ -41,8 +40,8 @@ static TileState tile_state;
 static SidebarState sidebar_state;
 static FieldAssignState field_assign_state = {0};
 static RoadDragState road_drag_state = {0};
-static Selection selection = {0};
-static WeatherScenarioState weather_scenario_state = {.current = WEATHER_SCENARIO_PERFECT_YEAR};
+static Selection selection = {.mansus_idx = -1, .field_mansus_idx = -1, .field_idx = -1};
+static WeatherScenarioState weather_scenario_state = {.current = WEATHER_SCENARIO_PERFECT_YEAR, .last_seen_month = -1};
 static CloudState cloud_state = {0};
 static SeasonState season_state = {0};
 static SoilOverlayState soil_overlay_state = {0};
@@ -59,9 +58,12 @@ static GameSpeedState game_speed_state = {0};
 static void draw_all(const ObjectArray *objects, int delete_target, const BuildPreview *preview, SeasonBlend season_blend) {
   draw_scene(objects, tile_state, &texture_state,
              season_blend, &map,
-             delete_target, &selection,
+             delete_target, &selection, &game_state,
              &preview->obj, preview->show_ghost, preview->tint,
              weather_state.water_level_z, soil_overlay_state);
+  draw_mansus_assign_flash(tile_state, &map, &game_state);
+  draw_mansus_selection_highlight(tile_state, &map, &game_state, &selection);
+  draw_field_status_icon(tile_state, &map, &game_state, &selection);
   draw_clouds(&cloud_state, &texture_state, &weather_state);
   draw_selection_rect(&selection);
 
@@ -75,6 +77,7 @@ static void draw_all(const ObjectArray *objects, int delete_target, const BuildP
   draw_weather_scenario_bar(&weather_scenario_state);
   draw_game_speed_bar(&game_speed_state);
   draw_minimap(&minimap_state, &map, &tile_state, objects, &game_state);
+  draw_mansus_goods_panel(&game_state, &selection);
   draw_cursor(&texture_state, &tile_state, objects, &selection, &map);
 }
 
@@ -124,7 +127,8 @@ int main(void) {
     ClearBackground(WHITE);
 
     int delete_target = hovered_delete_target(&objects, tile_state, mode_state);
-    int delete_field_target = delete_target < 0 ? hovered_delete_field(&game_state, tile_state, mode_state) : -1;
+    int delete_field_idx = -1;
+    int delete_field_target = delete_target < 0 ? hovered_delete_field(&game_state, tile_state, mode_state, &delete_field_idx) : -1;
 
     const SeasonBlend season_blend = resolve_season_blend(season_state);
 
@@ -135,11 +139,11 @@ int main(void) {
 
     build_object(&objects, &preview, tile_state, mode_state, &map, &game_state, &texture_state, any_hovered);
     delete_object(&objects, &map, &game_state, delete_target, any_hovered, &flood_field_state);
-    delete_field(&objects, &map, &game_state, delete_field_target, any_hovered);
+    delete_field(&objects, &map, &game_state, delete_field_target, delete_field_idx, any_hovered);
 
-    update_field_action(&field_assign_state, tile_state, &mode_state, &map, &game_state, any_hovered);
+    update_field_action(&field_assign_state, tile_state, &mode_state, &map, &game_state, any_hovered, &objects, &texture_state);
     update_road_drag(&road_drag_state, tile_state, &mode_state, &map, &objects, &texture_state, any_hovered);
-    update_selection(&selection, tile_state, mode_state, &objects, any_hovered);
+    update_selection(&selection, tile_state, mode_state, &objects, &game_state, any_hovered);
     update_crowd_density(&map, &objects);
 
     flood_field_refresh_timer += game_delta_time();
@@ -150,14 +154,13 @@ int main(void) {
 
     command_selected_units(&selection, &map, tile_state, &objects, &flood_field_state, &game_state, any_hovered);
 
-    update_figures(&objects, &map, &texture_state, &flood_field_state);
-    update_grass_tufts(&objects, &texture_state, &weather_state, season_blend);
-    update_trees(&objects, &texture_state, &weather_state, season_blend);
-    update_wheat_tufts(&objects, &texture_state, &weather_state);
+    update_figures(&objects, &map, &texture_state, &flood_field_state, &game_state);
+    update_mansus_effects(&game_state);
+    update_scenery_sway(&objects, &texture_state, &weather_state, season_blend);
     update_clouds(&cloud_state, &weather_state);
     update_puddles(&objects, &map, &texture_state, &weather_state);
     update_md(&mode_state);
-    update_weather_scenario(&weather_state, &weather_scenario_state, &map, &game_state);
+    update_weather_scenario(&weather_state, &weather_scenario_state, &map, &game_state, season_state.month);
     update_weather_state(&weather_state, season_state);
     update_soil_overlay_state(&soil_overlay_state);
     update_weather_scenario_state(&weather_scenario_state);
@@ -167,6 +170,8 @@ int main(void) {
     update_season_state(&season_state);
     update_tile_state(&tile_state);
     update_minimap_state(&minimap_state, &tile_state, &map);
+
+    culitvate_fields(&objects, &map, &flood_field_state, &game_state, &season_state);
 
     EndDrawing();
   }

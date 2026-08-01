@@ -3,6 +3,8 @@
 #include "selection/selection.h"
 #include "textures/textures.h"
 #include "soil/soil_overlay.h"
+#include "units/units.h"
+#include "seasons/seasons.h"
 #include <math.h>
 
 // Draw scene
@@ -51,6 +53,43 @@ static bool tile_is_edge(Map *map, const Tile *t, int x, int y, float water_leve
   float z_right = n_right ? (n_right->type == TILE_WATER ? water_level_z : n_right->z) : 0;
   float z_down = n_down ? (n_down->type == TILE_WATER ? water_level_z : n_down->z) : 0;
   return (n_right && t->z > z_right) || (n_down && t->z > z_down);
+}
+
+static Color darken_color(Color c, float factor) {
+  return (Color){
+    (unsigned char)(c.r * factor),
+    (unsigned char)(c.g * factor),
+    (unsigned char)(c.b * factor),
+    c.a,
+  };
+}
+
+static void draw_overlay_edge_walls(TileState tile_state, Map *map, int x, int y,
+                                    float effective_z, int sx, int sy,
+                                    float water_level_z, Color tint) {
+  const Tile *n_right = map_tile(map, x + 1, y);
+  const Tile *n_down = map_tile(map, x, y + 1);
+  float z_right = n_right ? (n_right->type == TILE_WATER ? water_level_z : n_right->z) : effective_z;
+  float z_down = n_down ? (n_down->type == TILE_WATER ? water_level_z : n_down->z) : effective_z;
+  Vector2 top = {(float)sx, (float)sy};
+
+  if (n_right && effective_z > z_right) {
+    float delta = (effective_z - z_right) * tile_state.TILE_H;
+    Vector2 right = {sx + tile_state.TILE_W / 2.0f, sy + tile_state.TILE_H / 2.0f};
+    Vector2 right_ext = {right.x, right.y + delta};
+    Vector2 top_ext = {top.x, top.y + delta};
+    DrawTriangle(top, right, right_ext, tint);
+    DrawTriangle(top, right_ext, top_ext, tint);
+  }
+
+  if (n_down && effective_z > z_down) {
+    float delta = (effective_z - z_down) * tile_state.TILE_H;
+    Vector2 left = {sx - tile_state.TILE_W / 2.0f, sy + tile_state.TILE_H / 2.0f};
+    Vector2 left_ext = {left.x, left.y + delta};
+    Vector2 top_ext = {top.x, top.y + delta};
+    DrawTriangle(top, left_ext, left, tint);
+    DrawTriangle(top, top_ext, left_ext, tint);
+  }
 }
 
 void visible_tile_bounds(TileState tile_state, const Map *map,
@@ -209,11 +248,25 @@ static void draw_mansus_tiles(const Tile* t,
   draw_grass(t, tile_state, texture_state, season_blend, map, sx, sy, x, y, water_level_z);
 }
 
-static void draw_dirt(TileState tile_state, Texture_State* texture_state, const int sx, const int sy) {
+static void draw_dirt(const Tile* t, TileState tile_state, Texture_State* texture_state,
+                      const int sx, const int sy, const int x, const int y) {
   const Color SOIL_COL = {110, 82, 48, 255};
   draw_diamond(tile_state, sx, sy, SOIL_COL);
   float scale = (float)tile_state.TILE_W / (float)texture_state->arable_land[0].width;
   draw_ground_tile(tile_state, sx, sy, &texture_state->arable_land[0], scale);
+
+  // A fallow field cross-fades toward a grass look the same way seasons cross-fade.
+  // Always fades toward SUMMER grass specifically (not the current season) so
+  // overgrowth always reads as "green and wild" instead of e.g. winter's pale look.
+  if (t->fallow_grass_blend > 0.0f) {
+    const int n_variants = 5;
+    int variant = tile_variant(x, y, n_variants);
+    const Texture2D *overgrown_tex = &texture_state->grass_flat[SUMMER][variant];
+    float grass_scale = (float)tile_state.TILE_W / (float)overgrown_tex->width;
+    Color grass_tint = (Color){255, 255, 255, (unsigned char)(t->fallow_grass_blend * 255)};
+    draw_ground_tile_tinted(tile_state, sx, sy, overgrown_tex, grass_scale, grass_tint);
+  }
+
   draw_diamond_outline(tile_state, sx, sy, BLACK);
 }
 
@@ -231,7 +284,9 @@ static void draw_tiles(TileState tile_state, Texture_State* texture_state,
       int sy = (x + y) * tile_state.TILE_H / 2 + tile_state.OFFSET_Y - tile_z * tile_state.TILE_H;
 
       if (soil_overlay_state.current != SOIL_OVERLAY_NONE) {
-        draw_diamond(tile_state, sx, sy, soil_overlay_tint(soil_overlay_state, t));
+        Color tint = soil_overlay_tint(soil_overlay_state, t);
+        draw_overlay_edge_walls(tile_state, map, x, y, tile_z, sx, sy, water_level_z, darken_color(tint, 0.65f));
+        draw_diamond(tile_state, sx, sy, tint);
         draw_diamond_outline(tile_state, sx, sy, (Color){0, 0, 0, 60});
         continue;
       }
@@ -254,7 +309,7 @@ static void draw_tiles(TileState tile_state, Texture_State* texture_state,
           break;
         }
         case TILE_SOIL: {
-          draw_dirt(tile_state, texture_state, sx, sy);
+          draw_dirt(t, tile_state, texture_state, sx, sy, x, y);
           break;
         }
       }
@@ -273,10 +328,22 @@ static bool object_in_bounds(const Object *o, int min_tx, int max_tx, int min_ty
   return back_x <= max_tx && front_x >= min_tx && back_y <= max_ty && front_y >= min_ty;
 }
 
+// A felled trunk's sprite reaches out from its tile in the direction it fell,
+// past a 1x1 footprint - the sort position needs to follow that reach, or a
+// figure standing where the trunk visually extends to sorts as if it were
+// behind the stump instead of behind the part of the trunk actually drawn there.
+static const float TREE_TRUNK_SORT_REACH = 1.0f;
+static const float TREE_TRUNK_DIR_DX[FIGURE_DIR_COUNT] = {0, 1, 1, 1, 0, -1, -1, -1};
+static const float TREE_TRUNK_DIR_DY[FIGURE_DIR_COUNT] = {1, 1, 0, -1, -1, -1, 0, 1};
+
 static ObjectOrder create_ObjectOrder_from_object(const Object *o, int idx) {
   bool use_draw_pos = (o->kind == OBJECT_FIGURE && o->id != 0) || o->kind == OBJECT_WHEAT_TUFT;
   float x = use_draw_pos ? o->draw_x : (float)o->tx;
   float y = use_draw_pos ? o->draw_y : (float)o->ty;
+  if (o->kind == OBJECT_TREE && o->tree.state != TREE_STATE_STANDING) {
+    x += TREE_TRUNK_DIR_DX[o->facing] * TREE_TRUNK_SORT_REACH;
+    y += TREE_TRUNK_DIR_DY[o->facing] * TREE_TRUNK_SORT_REACH;
+  }
   float frontmost_point = x + y;
   return (ObjectOrder){
     .idx = idx,
@@ -297,7 +364,7 @@ static ObjectOrder create_ObjectOrder_from_object(const Object *o, int idx) {
 void draw_scene(const ObjectArray *objects,
                 TileState tile_state, Texture_State *texture_state,
                 SeasonBlend season_blend, Map *map,
-                int highlight_index, const Selection *selection,
+                int highlight_index, const Selection *selection, const GameState *game_state,
                 const Object *preview, bool preview_active, Color preview_tint,
                 float water_level_z, SoilOverlayState soil_overlay_state) {
   update_scales(&scales, tile_state, texture_state, season_blend);
@@ -342,6 +409,14 @@ void draw_scene(const ObjectArray *objects,
     total = visible_count;
     qsort(order, total, sizeof(ObjectOrder), compare_object_order);
 
+    unsigned int selected_mansus_farmer_id = 0;
+    unsigned int selected_mansus_farmhand_id = 0;
+    if (selection->mansus_idx >= 0 && selection->mansus_idx < game_state->mansen.count) {
+      const Mansus *m = &game_state->mansen.data[selection->mansus_idx];
+      selected_mansus_farmer_id = m->farmer_object_id;
+      selected_mansus_farmhand_id = m->farmhand_object_id;
+    }
+
     for (int i = 0; i < total; i++) {
       if (order[i].is_preview) {
         draw_object(tile_state, preview, preview_tint);
@@ -355,10 +430,16 @@ void draw_scene(const ObjectArray *objects,
       const Object *o = &objects->data[order[i].idx];
       Color tint = WHITE;
       bool is_selected = o->kind == OBJECT_FIGURE && selection_contains(selection, o->id);
+      bool is_selected_mansus_worker = o->kind == OBJECT_FIGURE && o->id != 0 &&
+        (o->id == selected_mansus_farmer_id || o->id == selected_mansus_farmhand_id);
       if (order[i].idx == highlight_index) {
         tint = RED;
       } else if (is_selected) {
         tint = PURPLE;
+      } else if (is_selected_mansus_worker) {
+        tint = GOLD;
+      } else if (o->kind == OBJECT_BOUNDARY_STONE && o->boundary_stone.is_field_boundary) {
+        tint = RED;
       }
       draw_object_slice(tile_state, o, tint, order[i].sprite_slice_from, order[i].sprite_slice_to);
     }
@@ -366,17 +447,6 @@ void draw_scene(const ObjectArray *objects,
   }
 }
 
-
-static bool mouse_over_tree(const TileState *tile_state, const ObjectArray *objects, const Vector2 mouse) {
-  for (int i = 0; i < objects->count; i++) {
-    Object *o = &objects->data[i];
-    if (o->kind != OBJECT_TREE) continue;
-    if (CheckCollisionPointRec(mouse, calc_object_screen_rectangle(*tile_state, o))) {
-      return true;
-    }
-  }
-  return false;
-}
 
 static bool selection_has_ox(const ObjectArray *objects, const Selection *sel) {
   for (int i = 0; i < objects->count; i++) {
@@ -389,24 +459,12 @@ static bool selection_has_ox(const ObjectArray *objects, const Selection *sel) {
   return false;
 }
 
-static bool selection_has_farmer(const ObjectArray *objects, const Selection *sel) {
-  for (int i = 0; i < objects->count; i++) {
-    const Object *o = &objects->data[i];
-    bool is_farmer = o->figure.species == FIGURE_SPECIES_FARMER1 ||
-                     o->figure.species == FIGURE_SPECIES_FARMER2;
-    if (o->kind == OBJECT_FIGURE && is_farmer && selection_contains(sel, o->id)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void draw_cursor(const Texture_State *texture_state, const TileState* tile_state,
                  const ObjectArray* objects, const Selection* sel, Map *map) {
   Vector2 mouse = GetMousePosition();
   const SpriteAsset *sprite = &texture_state->cursor;
   if (sel->count > 0) {
-    const bool is_tree_target = mouse_over_tree(tile_state, objects, mouse);
+    const bool is_tree_target = find_tree_at_screen_pos(objects, *tile_state, mouse) >= 0;
     if (is_tree_target) {
       sprite = &texture_state->axe_cursor;
     } else if (selection_has_ox(objects, sel)) {
@@ -416,13 +474,6 @@ void draw_cursor(const Texture_State *texture_state, const TileState* tile_state
       if (t && t->type == TILE_SOIL) {
         sprite = &texture_state->plow_cursor;
       }
-    } else if (selection_has_farmer(objects, sel)) {
-      int tx = screen_to_tile_x(*tile_state, mouse.x, mouse.y);
-      int ty = screen_to_tile_y(*tile_state, mouse.x, mouse.y);
-      const Tile *t = map_tile(map, tx, ty);
-      if (t && t->type == TILE_SOIL) {
-        sprite = &texture_state->scythe_cursor;
-      }
     }
   }
   Vector2 pos = {
@@ -430,4 +481,129 @@ void draw_cursor(const Texture_State *texture_state, const TileState* tile_state
     mouse.y - sprite->tex.height * sprite->scale * sprite->anchor.y,
   };
   DrawTextureEx(sprite->tex, pos, 0.0f, sprite->scale, WHITE);
+}
+
+void draw_mansus_assign_flash(TileState tile_state, Map *map, const GameState *game_state) {
+  for (int mi = 0; mi < game_state->mansen.count; mi++) {
+    const Mansus *m = &game_state->mansen.data[mi];
+    if (m->assign_flash_timer <= 0.0f) continue;
+
+    float alpha = m->assign_flash_timer / MANSUS_ASSIGN_FLASH_SECONDS;
+    Color tint = (Color){80, 220, 90, (unsigned char)(140 * alpha)};
+
+    for (int fy = m->corners_floor_area[0][1]; fy <= m->corners_floor_area[1][1]; fy++) {
+      for (int fx = m->corners_floor_area[0][0]; fx <= m->corners_floor_area[1][0]; fx++) {
+        const Tile *t = map_tile(map, fx, fy);
+        if (!t) continue;
+        int sx = (fx - fy) * tile_state.TILE_W / 2 + tile_state.OFFSET_X;
+        int sy = (fx + fy) * tile_state.TILE_H / 2 + tile_state.OFFSET_Y - t->z * tile_state.TILE_H;
+        draw_diamond(tile_state, sx, sy, tint);
+      }
+    }
+  }
+}
+
+void draw_mansus_selection_highlight(TileState tile_state, Map *map, const GameState *game_state, const Selection *selection) {
+  if (selection->mansus_idx < 0 || selection->mansus_idx >= game_state->mansen.count) return;
+  const Mansus *m = &game_state->mansen.data[selection->mansus_idx];
+
+  const Color yard_tint = (Color){255, 215, 0, 70};
+  for (int fy = m->corners_floor_area[0][1]; fy <= m->corners_floor_area[1][1]; fy++) {
+    for (int fx = m->corners_floor_area[0][0]; fx <= m->corners_floor_area[1][0]; fx++) {
+      const Tile *t = map_tile(map, fx, fy);
+      if (!t) continue;
+      int sx = (fx - fy) * tile_state.TILE_W / 2 + tile_state.OFFSET_X;
+      int sy = (fx + fy) * tile_state.TILE_H / 2 + tile_state.OFFSET_Y - t->z * tile_state.TILE_H;
+      draw_diamond_outline(tile_state, sx, sy, GOLD);
+      draw_diamond(tile_state, sx, sy, yard_tint);
+    }
+  }
+
+  const Color field_tint = (Color){255, 215, 0, 90};
+  for (int fi = 0; fi < m->fields.count; fi++) {
+    const Field *f = &m->fields.data[fi];
+    for (int fy = f->corners_field[0][1]; fy <= f->corners_field[1][1]; fy++) {
+      for (int fx = f->corners_field[0][0]; fx <= f->corners_field[1][0]; fx++) {
+        const Tile *t = map_tile(map, fx, fy);
+        if (!t) continue;
+        int sx = (fx - fy) * tile_state.TILE_W / 2 + tile_state.OFFSET_X;
+        int sy = (fx + fy) * tile_state.TILE_H / 2 + tile_state.OFFSET_Y - t->z * tile_state.TILE_H;
+        draw_diamond(tile_state, sx, sy, field_tint);
+        draw_diamond_outline(tile_state, sx, sy, GOLD);
+      }
+    }
+  }
+}
+
+// Placeholder status badge for the selected field, until real pixellab icons exist.
+void draw_field_status_icon(TileState tile_state, Map *map, const GameState *game_state, const Selection *selection) {
+  if (selection->field_mansus_idx < 0 || selection->field_mansus_idx >= game_state->mansen.count) return;
+  const Mansus *m = &game_state->mansen.data[selection->field_mansus_idx];
+  if (selection->field_idx < 0 || selection->field_idx >= m->fields.count) return;
+  const Field *f = &m->fields.data[selection->field_idx];
+
+  int center_tx = (f->corners_field[0][0] + f->corners_field[1][0]) / 2;
+  int center_ty = (f->corners_field[0][1] + f->corners_field[1][1]) / 2;
+  const Tile *t = map_tile(map, center_tx, center_ty);
+  float z = t ? t->z : 0.0f;
+  int sx = (center_tx - center_ty) * tile_state.TILE_W / 2 + tile_state.OFFSET_X;
+  int sy = (center_tx + center_ty) * tile_state.TILE_H / 2 + tile_state.OFFSET_Y - (int)(z * tile_state.TILE_H);
+
+  const char *label;
+  Color color;
+  if (f->field_condition == GRASS || f->field_condition == FALLOW) {
+    label = "Has to be plowed";
+    color = (Color){90, 130, 60, 255};
+  } else if (f->field_condition == PLOWED) {
+    label = "Fallow";
+    color = (Color){139, 90, 43, 255};
+  } else if (f->field_condition == SOWED) {
+    label = "Sowed";
+    color = (Color){212, 175, 55, 255};
+  } else {
+    label = "Growing";
+    color = (Color){60, 160, 60, 255};
+  }
+
+  int icon_y = sy - tile_state.TILE_H * 2;
+  int radius = tile_state.TILE_W / 6;
+  DrawCircle(sx, icon_y, (float)radius, color);
+  DrawCircleLines(sx, icon_y, (float)radius, BLACK);
+
+  int font_size = 14;
+  int text_width = MeasureText(label, font_size);
+  DrawText(label, sx - text_width / 2, icon_y + radius + 4, font_size, BLACK);
+}
+
+static void draw_goods_row(int x, int y, int font_size, const char *label, int amount) {
+  DrawText(TextFormat("%s: %d", label, amount), x, y, font_size, WHITE);
+}
+
+void draw_mansus_goods_panel(const GameState *game_state, const Selection *selection) {
+  if (!selection->barn_selected) return;
+  if (selection->mansus_idx < 0 || selection->mansus_idx >= game_state->mansen.count) return;
+  const Mansus *m = &game_state->mansen.data[selection->mansus_idx];
+  const Goods *g = &m->goods;
+
+  float scale = topbar_scale();
+  float vscale = topbar_vertical_scale();
+  int font_size = (int)(20 * vscale);
+  int line_height = (int)(26 * vscale);
+  int padding = (int)(15 * scale);
+  int panel_w = (int)(220 * scale);
+  int panel_h = padding * 2 + line_height * 7;
+  Rectangle r = {0, topbar_panel_rect().height + 10 * vscale, (float)panel_w, (float)panel_h};
+
+  DrawRectangleRounded(r, 0.1f, 8, BEIGE);
+  DrawRectangleRoundedLinesEx(r, 0.1f, 8, 2.0f, BLACK);
+
+  int x = (int)r.x + padding;
+  int y = (int)r.y + padding;
+  draw_goods_row(x, y, font_size, "Grains", g->grains); y += line_height;
+  draw_goods_row(x, y, font_size, "Straw", g->straw); y += line_height;
+  draw_goods_row(x, y, font_size, "Wood", g->wood); y += line_height;
+  draw_goods_row(x, y, font_size, "Clay", g->clay); y += line_height;
+  draw_goods_row(x, y, font_size, "Limestone", g->limestone); y += line_height;
+  draw_goods_row(x, y, font_size, "Slaked lime", g->slaked_lime); y += line_height;
+  draw_goods_row(x, y, font_size, "Willow branches", g->willow_branches);
 }

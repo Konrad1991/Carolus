@@ -3,8 +3,10 @@
 
 #include "types.h"
 
+unsigned int allocate_object_id(void);
 void object_array_push(ObjectArray *arr, Object obj);
 void object_array_remove_swap(ObjectArray *arr, int index);
+int object_array_find_by_id(const ObjectArray *arr, unsigned int id);
 void object_array_free(ObjectArray *arr);
 
 void mansus_array_push(MansusArray *arr, Mansus mansus);

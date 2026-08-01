@@ -79,7 +79,7 @@ static const OverlayLegend OVERLAY_LEGENDS[SOIL_OVERLAY_COUNT] = {
   [SOIL_OVERLAY_MINERALS] = {
     .title = "Mineralgehalt",
     .low_label = "depleted (0g)",
-    .high_label = "fertile (100g)",
+    .high_label = "fertile (200g)",
     .low = {200, 20, 20, 255},
     .high = {255, 210, 0, 255},
   },
@@ -132,6 +132,7 @@ static Color lerp_color(Color a, Color b, float t) {
 
 Color soil_overlay_tint(SoilOverlayState state, const Tile *tile) {
   if (state.current == SOIL_OVERLAY_NONE) return (Color){0, 0, 0, 0};
+  if (tile->type == TILE_WATER) return (Color){0, 190, 210, 255};
   const OverlayLegend *legend = &OVERLAY_LEGENDS[state.current];
 
   float t;

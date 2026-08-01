@@ -5,7 +5,7 @@
 #include "map/map.h"
 
 #define SOIL_WATER_CAPACITY_L 200.0f
-#define SOIL_MINERAL_CAPACITY_G 100.0f
+#define SOIL_MINERAL_CAPACITY_G 200.0f
 
 void init_soil(Map *map, const WeatherState *weather_state);
 

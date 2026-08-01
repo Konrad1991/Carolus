@@ -4,8 +4,6 @@
 #include "soil/soil.h"
 #include "utils/game_time.h"
 
-#define WHEAT_TUFTS_PER_TILE 7
-
 typedef struct {
   float min_temp;
   float min_water;
@@ -36,24 +34,24 @@ static const GrowthRequirement REQ_TILLERING = {
   .max_temp = 30.0f,
   .water_uptake_rate = 0.05f,
   .target_water_uptake = 0.3f / WHEAT_TUFTS_PER_TILE,
-  .minerals_uptake_rate = 0.008f,
-  .target_minerals_uptake = 0.4f / WHEAT_TUFTS_PER_TILE
+  .minerals_uptake_rate = 0.004f,
+  .target_minerals_uptake = 0.05f / WHEAT_TUFTS_PER_TILE
 };
 static const GrowthRequirement REQ_HEADING = {
   .min_temp = 12.0f,
   .max_temp = 30.0f,
   .water_uptake_rate = 0.3f,
   .target_water_uptake = 0.6f / WHEAT_TUFTS_PER_TILE,
-  .minerals_uptake_rate = 0.015f,
-  .target_minerals_uptake = 0.75f / WHEAT_TUFTS_PER_TILE
+  .minerals_uptake_rate = 0.008f,
+  .target_minerals_uptake = 0.1f / WHEAT_TUFTS_PER_TILE
 };
 static const GrowthRequirement REQ_RIPENING = {
   .min_temp = 14.0f,
   .max_temp = -1.0f,
   .water_uptake_rate = 0.2f,
   .target_water_uptake = 0.5f / WHEAT_TUFTS_PER_TILE,
-  .minerals_uptake_rate = 0.03f,
-  .target_minerals_uptake = 0.07f / WHEAT_TUFTS_PER_TILE
+  .minerals_uptake_rate = 0.01f,
+  .target_minerals_uptake = 0.003f / WHEAT_TUFTS_PER_TILE
 };
 
 static bool growth_temp_met(const GrowthRequirement *req, float temp) {
@@ -106,11 +104,13 @@ static void scatter_wheat_tufts(ObjectArray *objects, const Texture_State *textu
 
   for (int ty = field->corners_field[0][1]; ty <= field->corners_field[1][1]; ty++) {
     for (int tx = field->corners_field[0][0]; tx <= field->corners_field[1][0]; tx++) {
-      const Tile *t = map_tile(map, tx, ty);
+      Tile *t = map_tile(map, tx, ty);
       int tz = t ? t->z : 0;
+      if (t) t->wheat_tuft_count = 0;
       for (int n = 0; n < WHEAT_TUFTS_PER_TILE; n++) {
         FigureDirection dir = (FigureDirection)GetRandomValue(0, FIGURE_DIR_COUNT - 1);
         Object tuft = {
+          .id = allocate_object_id(),
           .sprite = texture_state->wheat_tuft_idle[WHEAT_STAGE_YOUNG][dir],
           .tx = tx, .ty = ty, .z = tz,
           .footprint_w = 1, .footprint_h = 1,
@@ -130,6 +130,7 @@ static void scatter_wheat_tufts(ObjectArray *objects, const Texture_State *textu
         tuft.draw_x = dx;
         tuft.draw_y = dy;
         object_array_push(objects, tuft);
+        if (t) t->wheat_tuft_ids[t->wheat_tuft_count++] = tuft.id;
       }
     }
   }
@@ -154,10 +155,10 @@ static void set_wheat_stage(Object *o, WheatStage stage) {
 
 static void update_wheat_tuft_growth(Map *map, ObjectArray *objects) {
   const float dt = game_delta_time();
-  const float wheat_overripe_seconds = SECONDS_PER_MONTH * 1.0f;
-  const float wheat_destroyed_seconds = SECONDS_PER_MONTH * 0.5f;
+  const float wheat_overripe_seconds = SECONDS_PER_MONTH * 2.0f;
+  const float wheat_destroyed_seconds = SECONDS_PER_MONTH * 1.0f;
   const float wheat_max_immature_seconds = SECONDS_PER_MONTH * 2.5f;
-  const float growth_sustain_seconds = SECONDS_PER_MONTH * 0.45f;
+  const float growth_sustain_seconds = SECONDS_PER_MONTH * 0.70f;
 
   for (int i = 0; i < objects->count; i++) {
     Object *o = &objects->data[i];
@@ -178,7 +179,7 @@ static void update_wheat_tuft_growth(Map *map, ObjectArray *objects) {
     }
 
     if (o->wheat.wheat_stage_age >= wheat_max_immature_seconds) {
-      set_wheat_stage(o, WHEAT_STAGE_OVERRIPE);
+      set_wheat_stage(o, WHEAT_STAGE_DESTROYED);
       continue;
     }
 
@@ -214,17 +215,77 @@ static bool field_has_active_tuft(const Field *field, const ObjectArray *objects
   return false;
 }
 
+static bool field_condition_is_growing(FieldCondition condition) {
+  return condition == SMALL_GREEN_PLANTS || condition == MEDIUM_GREEN_PLANTS ||
+    condition == LARGE_GREEN_PLANTS || condition == LARGE_YELLOW_PLANTS;
+}
+
+static FieldCondition condition_for_wheat_stage(WheatStage stage) {
+  switch (stage) {
+    case WHEAT_STAGE_YOUNG: return SMALL_GREEN_PLANTS;
+    case WHEAT_STAGE_MIDDLE: return MEDIUM_GREEN_PLANTS;
+    case WHEAT_STAGE_LARGE_GREEN: return LARGE_GREEN_PLANTS;
+    case WHEAT_STAGE_RIPE:
+    case WHEAT_STAGE_OVERRIPE:
+    default: return LARGE_YELLOW_PLANTS;
+  }
+}
+
+// A field's condition tracks its least-advanced still-growing tuft, so it only
+// reports e.g. LARGE_YELLOW_PLANTS once the whole field has caught up, not
+// just a few early tufts.
+static void update_field_growth_condition(Field *field, const ObjectArray *objects) {
+  bool found_active = false;
+  WheatStage least_advanced = WHEAT_STAGE_OVERRIPE;
+  for (int i = 0; i < objects->count; i++) {
+    const Object *o = &objects->data[i];
+    if (o->kind != OBJECT_WHEAT_TUFT) continue;
+    if (o->tx < field->corners_field[0][0] || o->tx > field->corners_field[1][0]) continue;
+    if (o->ty < field->corners_field[0][1] || o->ty > field->corners_field[1][1]) continue;
+    WheatStage stage = o->wheat.wheat_stage;
+    if (stage == WHEAT_STAGE_HARVESTED || stage == WHEAT_STAGE_DESTROYED) continue;
+    found_active = true;
+    if (stage < least_advanced) least_advanced = stage;
+  }
+  if (!found_active) return;
+  field->field_condition = condition_for_wheat_stage(least_advanced);
+}
+
+static const float FALLOW_OVERGROW_SECONDS = SECONDS_PER_MONTH;
+
+// Bare soil not currently growing anything (freshly dug or fallow after harvest)
+// slowly grasses over, cross-fading toward a grass look the same way seasons
+// cross-fade (see draw_dirt/draw_grass in drawing.c).
+static void update_fallow_overgrowth(Map *map, const Field *field, float dt) {
+  for (int y = field->corners_field[0][1]; y <= field->corners_field[1][1]; y++) {
+    for (int x = field->corners_field[0][0]; x <= field->corners_field[1][0]; x++) {
+      Tile *t = map_tile(map, x, y);
+      if (!t || t->type != TILE_SOIL) continue;
+      t->fallow_grass_blend += dt / FALLOW_OVERGROW_SECONDS;
+      if (t->fallow_grass_blend > 1.0f) t->fallow_grass_blend = 1.0f;
+    }
+  }
+}
+
 void update_crop_growth(Map *map, ObjectArray *objects, const Texture_State *texture_state, GameState *game_state) {
   const float dt = game_delta_time();
-  const float germination_sustain_seconds = SECONDS_PER_MONTH / 6.0f;
+  const float germination_sustain_seconds = SECONDS_PER_MONTH * 0.5f;
 
   for (int mi = 0; mi < game_state->mansen.count; mi++) {
     Mansus *m = &game_state->mansen.data[mi];
     for (int fi = 0; fi < m->fields.count; fi++) {
       Field *f = &m->fields.data[fi];
 
-      if (f->field_condition == SMALL_GREEN_PLANTS && !field_has_active_tuft(f, objects)) {
-        f->field_condition = FALLOW;
+      if (field_condition_is_growing(f->field_condition)) {
+        if (!field_has_active_tuft(f, objects)) {
+          f->field_condition = FALLOW;
+        } else {
+          update_field_growth_condition(f, objects);
+        }
+        continue;
+      }
+      if (f->field_condition == FALLOW || f->field_condition == PLOWED) {
+        update_fallow_overgrowth(map, f, dt);
         continue;
       }
       if (f->field_condition != SOWED) continue;

@@ -139,3 +139,12 @@ int find_object_at_tile(const ObjectArray *objects, int tx, int ty) {
   }
   return best;
 }
+
+int find_tree_at_screen_pos(const ObjectArray *objects, TileState tile_state, Vector2 mouse) {
+  for (int i = 0; i < objects->count; i++) {
+    const Object *o = &objects->data[i];
+    if (o->kind != OBJECT_TREE) continue;
+    if (CheckCollisionPointRec(mouse, calc_object_screen_rectangle(tile_state, o))) return i;
+  }
+  return -1;
+}

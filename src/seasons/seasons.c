@@ -24,13 +24,21 @@ void update_season_state(SeasonState* s) {
   if (s->month_progress >= 1.0f) {
     s->month_progress -= 1.0f;
     s->month = (s->month + 1) % 12;
+    if (s->month == 0) s->year++;
   }
 
   if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-    if (s->month_up_hovered)   { s->month = (s->month + 1) % 12;  s->month_progress = 0.0f; }
-    if (s->month_down_hovered) { s->month = (s->month + 11) % 12; s->month_progress = 0.0f; }
+    if (s->month_up_hovered) {
+      s->month = (s->month + 1) % 12;
+      s->month_progress = 0.0f;
+      if (s->month == 0) s->year++;
+    }
+    if (s->month_down_hovered) {
+      if (s->month == 0) s->year--;
+      s->month = (s->month + 11) % 12;
+      s->month_progress = 0.0f;
+    }
   }
-  s->month_progress += game_delta_time() / SECONDS_PER_MONTH;
 }
 
 static bool draw_month_arrow(Rectangle r, bool pointing_up) {
@@ -60,6 +68,8 @@ Rectangle topbar_panel_rect(void) {
   return (Rectangle){0, 0, 1800.0f * topbar_scale(), 65.0f * topbar_vertical_scale()};
 }
 
+static const int CAROLUS_START_YEAR_AD = 500;
+
 void draw_season_bar(SeasonState *s) {
   const char* months[12] = {
     "January", "February", "March", "April", "May", "June",
@@ -71,8 +81,8 @@ void draw_season_bar(SeasonState *s) {
   DrawRectangleRounded(r, 0.2f, 8, BEIGE);
   DrawRectangleRoundedLinesEx(r, 0.2f, 8, 2.0f, BLACK);
   DrawText(
-    TextFormat("Month %s", months[s->month]),
-    (int)(500 * scale), (int)(25 * vscale), (int)(20 * vscale), WHITE
+    TextFormat("Month %s, Year %d AD", months[s->month], CAROLUS_START_YEAR_AD + s->year),
+    (int)(400 * scale), (int)(25 * vscale), (int)(20 * vscale), WHITE
   );
 
   Rectangle up_rect   = {680 * scale, 5 * vscale,  30 * scale, 25 * vscale};

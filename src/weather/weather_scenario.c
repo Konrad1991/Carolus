@@ -91,8 +91,17 @@ static void run_scenario_phases(WeatherState *weather_state, WeatherScenarioStat
   }
 }
 
-void update_weather_scenario(WeatherState *weather_state, WeatherScenarioState *scenario_state, Map *map, const GameState *game_state) {
+static void reset_scenario_timers(WeatherScenarioState *scenario_state) {
+  scenario_state->elapsed = 0.0f;
+  scenario_state->sub_timer = 0.0f;
+}
+
+void update_weather_scenario(WeatherState *weather_state, WeatherScenarioState *scenario_state, Map *map, const GameState *game_state, int current_month) {
   if (scenario_state->current == WEATHER_SCENARIO_NONE) return;
+
+  bool new_year_started = scenario_state->last_seen_month >= 0 && current_month < scenario_state->last_seen_month;
+  scenario_state->last_seen_month = current_month;
+  if (new_year_started) reset_scenario_timers(scenario_state);
 
   scenario_state->elapsed += game_delta_time();
 
@@ -109,8 +118,8 @@ void update_weather_scenario(WeatherState *weather_state, WeatherScenarioState *
 
 static void select_weather_scenario(WeatherScenarioState *scenario_state, WeatherScenario scenario) {
   scenario_state->current = scenario;
-  scenario_state->elapsed = 0.0f;
-  scenario_state->sub_timer = 0.0f;
+  scenario_state->last_seen_month = -1;
+  reset_scenario_timers(scenario_state);
 }
 
 void cycle_weather_scenario(WeatherScenarioState *scenario_state) {

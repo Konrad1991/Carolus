@@ -4,7 +4,7 @@
 #include "types.h"
 #include "map/map.h"
 
-void update_weather_scenario(WeatherState *weather_state, WeatherScenarioState *scenario_state, Map *map, const GameState *game_state);
+void update_weather_scenario(WeatherState *weather_state, WeatherScenarioState *scenario_state, Map *map, const GameState *game_state, int current_month);
 
 void cycle_weather_scenario(WeatherScenarioState *scenario_state);
 
