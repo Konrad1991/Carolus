@@ -3,6 +3,31 @@
 
 // Objects
 // ----------------------
+typedef struct {
+  int x;
+  int y;
+} Position;
+
+typedef struct {
+  float x;
+  float y;
+} PositionFloat;
+
+typedef struct {
+  int min_tx;
+  int max_tx;
+  int min_ty;
+  int max_ty;
+  bool row_along_tx;
+} RouteBounds;
+
+typedef struct {
+  int row;
+  int step_dir;
+  int cursor;
+  int sweep_dir;
+} RowSweepState;
+
 typedef enum {
   PLOW_PHASE_NONE,
   PLOW_PHASE_APPROACH,
@@ -12,8 +37,7 @@ typedef enum {
 
 typedef struct {
   PlowPhase phase;
-  bool row_along_tx;
-  int min_tx, max_tx, min_ty, max_ty;
+  RouteBounds route_bounds;
   int step_coord;
   int step_dir;
   bool sweep_positive;
@@ -30,12 +54,8 @@ typedef enum {
 
 typedef struct {
   HarvestPhase phase;
-  bool row_along_tx;
-  int min_tx, max_tx, min_ty, max_ty;
-  int row;
-  int step_dir;
-  int cursor;
-  int sweep_dir;
+  RouteBounds route_bounds;
+  RowSweepState row_sweep_state;
   float mow_timer;
   float pick_timer;
   int carried_sheaves;
@@ -50,12 +70,8 @@ typedef enum {
 
 typedef struct {
   SowPhase phase;
-  bool row_along_tx;
-  int min_tx, max_tx, min_ty, max_ty;
-  int row;
-  int step_dir;
-  int cursor;
-  int sweep_dir;
+  RouteBounds route_bounds;
+  RowSweepState row_sweep_state;
 } SowRoute;
 
 typedef enum {
@@ -66,12 +82,8 @@ typedef enum {
 
 typedef struct {
   DigPhase phase;
-  bool row_along_tx;
-  int min_tx, max_tx, min_ty, max_ty;
-  int row;
-  int step_dir;
-  int cursor;
-  int sweep_dir;
+  RouteBounds route_bounds;
+  RowSweepState row_sweep_state;
   float dig_timer;
 } DigRoute;
 
@@ -97,21 +109,20 @@ typedef enum {
   OBJECT_GRASS_TUFT,
   OBJECT_WHEAT_TUFT,
   OBJECT_PUDDLE,
-  OBJECT_BOUNDARY_STONE
+  OBJECT_BOUNDARY_STONE,
+  OBJECT_ROCK
 } ObjectKind;
 
 typedef struct {
   int flood_field_idx; // -1: idle
   bool direct_walking; // short local hop within a field/route, no flood field needed
-  int target_tx;
-  int target_ty;
+  Position target;
   float progress;
   float speed;
   FigureAction action;
   float action_timer;
   FigureAction pending_action;
-  int gather_tx;
-  int gather_ty;
+  Position gather;
   FigureSpecies species;
   bool plowing;
   PlowRoute plow_route;
@@ -119,8 +130,7 @@ typedef struct {
   SowRoute sow_route;
   DigRoute dig_route;
   WoodRoute wood_route;
-  int step_tx;
-  int step_ty;
+  Position step;
   int prev_tile;
   int best_distance_to_target;
   int pacing_streak;
@@ -148,7 +158,6 @@ typedef struct {
 typedef enum {
   TREE_STATE_STANDING,
   TREE_STATE_FELLED,
-  TREE_STATE_BEAM,
 } TreeState;
 
 typedef struct {
@@ -166,8 +175,7 @@ typedef struct {
   int footprint_h;
   ObjectKind kind;
   FigureDirection facing;
-  float draw_x;
-  float draw_y;
+  PositionFloat draw;
   union {
     FigureAttributes figure;
     WheatAttributes wheat;
@@ -190,10 +198,10 @@ typedef struct {
   float frontmost_point;
   float backmost_point;
   int z;
-  int tile_x;
-  int tile_y;
+  Position tile;
   float sprite_slice_from;
   float sprite_slice_to;
+  bool slice_horizontal; // true: slice_from/to cut the sprite left-to-right instead of top-to-bottom
   bool is_figure;
   bool is_ground_decor;
   bool is_tall_decor;

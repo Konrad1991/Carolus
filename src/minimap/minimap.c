@@ -27,6 +27,7 @@ static Color minimap_tile_color(TileType type) {
     case TILE_ROAD: return (Color){130, 105, 75, 255};
     case TILE_WATER: return (Color){30, 100, 200, 255};
     case TILE_SOIL: return (Color){110, 82, 48, 255};
+    case TILE_SWAMP: return (Color){66, 74, 48, 255};
   }
   return BLACK;
 }

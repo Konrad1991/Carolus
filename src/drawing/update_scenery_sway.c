@@ -31,10 +31,6 @@ static void update_grass_tuft_sway(Object *o, const Texture_State *texture_state
 
 static void update_tree_sway(Object *o, const Texture_State *texture_state, bool wind_active,
                              const WeatherState *weather_state, SeasonBlend season_blend, float sway_fps) {
-  if (o->tree.state == TREE_STATE_BEAM) {
-    o->sprite = texture_state->oak_beam[o->facing];
-    return;
-  }
   if (o->tree.state == TREE_STATE_FELLED) {
     o->sprite = texture_state->oak_trunk[o->facing];
     return;

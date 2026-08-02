@@ -4,6 +4,11 @@
 #include "raylib.h"
 #include "types.h"
 
+extern const int TREE_TRUNK_DIR_TX[FIGURE_DIR_COUNT];
+extern const int TREE_TRUNK_DIR_TY[FIGURE_DIR_COUNT];
+// Tiles a felled trunk spans (base tile + reach), only south-east calibrated so far.
+#define TREE_TRUNK_TILE_SPAN 3
+
 int tile_variant(int tx, int ty, int num_variants);
 Vector2 screen_direction_for_facing(FigureDirection dir);
 
@@ -17,6 +22,7 @@ void draw_ground_tile(TileState tile_state, int sx, int sy, const Texture2D *tex
 void draw_relief_tile(int sx, int sy, const Texture2D *tex, float scale);
 Rectangle calc_object_screen_rectangle(TileState tile_state, const Object* o);
 void draw_object_slice(TileState tile_state, const Object *o, Color tint, float slice_from, float slice_to);
+void draw_object_slice_x(TileState tile_state, const Object *o, Color tint, float slice_from, float slice_to);
 void draw_object(TileState tile_state, const Object *o, Color tint);
 int find_object_at_tile(const ObjectArray *objects, int tx, int ty);
 int find_tree_at_screen_pos(const ObjectArray *objects, TileState tile_state, Vector2 mouse);

@@ -269,7 +269,7 @@ BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, co
     .kind = kind,
     .facing = (FigureDirection)tile_variant(tx, ty, FIGURE_DIR_COUNT),
     .figure = {
-      .gather_tx = tx, .gather_ty = ty,
+      .gather = {tx, ty},
       .species = species, .flood_field_idx = -1, .prev_tile = -1,
       .best_distance_to_target = -1
     },

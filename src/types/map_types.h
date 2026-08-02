@@ -8,7 +8,8 @@ typedef enum {
   TILE_ROAD,
   TILE_WATER,
   TILE_MANSUSYARD,
-  TILE_SOIL
+  TILE_SOIL,
+  TILE_SWAMP
 } TileType;
 
 typedef struct {

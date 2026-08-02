@@ -14,7 +14,7 @@ static int tile_base_cost(const Tile *tile) {
     case TILE_ROAD:  return 1;
     case TILE_MANSUSYARD: return 3;
     case TILE_SOIL: return 2;
-    case TILE_WATER: default: return TILE_IMPASSABLE;
+    case TILE_WATER: case TILE_SWAMP: default: return TILE_IMPASSABLE;
   }
 }
 
@@ -176,7 +176,7 @@ void refresh_flood_fields(Map *map, ObjectArray *objects, FloodFieldArray *flood
     for (int i = 0; i < objects->count; i++) {
       Object *o = &objects->data[i];
       if (o->kind != OBJECT_FIGURE || o->figure.flood_field_idx != idx) continue;
-      targets[n_targets++] = node_index(o->figure.target_tx, o->figure.target_ty, map->w);
+      targets[n_targets++] = node_index(o->figure.target.x, o->figure.target.y, map->w);
     }
     if (n_targets == 0) {
       free(targets);

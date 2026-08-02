@@ -194,9 +194,6 @@ static const float PUDDLE_SCALE = 1.0f;
 static const Vector2 OAK_TRUNK_ANCHOR = {0.5f, 1.0f};
 static const float OAK_TRUNK_SCALE = 1.0f;
 
-static const Vector2 OAK_BEAM_ANCHOR = {0.5f, 1.0f};
-static const float OAK_BEAM_SCALE = 1.0f;
-
 static void load_grass_tuft(Texture_State *texture_state, const char *grass_tuft_dir, int season) {
   char path[512];
   for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
@@ -281,6 +278,25 @@ static void load_boundary_stone(Texture_State *texture_state, const char *bounda
   sprite->anchor = BOUNDARY_STONE_ANCHOR;
   sprite->scale = BOUNDARY_STONE_SCALE;
   SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+}
+
+static const char *ROCK_FILENAMES[ROCK_VARIANT_COUNT] = {
+  "limestone1.png", "limestone2.png", "limestone3.png", "limestone4.png",
+  "sandstone1.png", "sandstone2.png", "sandstone3.png",
+};
+static const Vector2 ROCK_ANCHOR = {0.5f, 1.0f};
+static const float ROCK_SCALE = 0.4f; // starting guess, tune visually against TILE_W
+
+static void load_rocks(Texture_State *texture_state, const char *rocks_dir) {
+  char path[512];
+  for (int i = 0; i < ROCK_VARIANT_COUNT; i++) {
+    snprintf(path, sizeof(path), "%s%s", rocks_dir, ROCK_FILENAMES[i]);
+    SpriteAsset *sprite = &texture_state->rock[i];
+    sprite->tex = LoadTexture(path);
+    sprite->anchor = ROCK_ANCHOR;
+    sprite->scale = ROCK_SCALE;
+    SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+  }
 }
 
 static const Vector2 WHEAT_SHEAF_ANCHOR = {0.5f, 1.05f};
@@ -379,19 +395,6 @@ static void load_oak_trunk(Texture_State *texture_state, const char *oak_trunk_d
   }
 }
 
-static void load_oak_beam(Texture_State *texture_state, const char *oak_beam_dir) {
-  char path[512];
-  for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
-    const char *dir_name = FIGURE_DIR_COMPASS[d];
-    snprintf(path, sizeof(path), "%srotations/%s.png", oak_beam_dir, dir_name);
-    SpriteAsset *sprite = &texture_state->oak_beam[d];
-    sprite->tex = LoadTexture(path);
-    sprite->anchor = OAK_BEAM_ANCHOR;
-    sprite->scale = OAK_BEAM_SCALE;
-    SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
-  }
-}
-
 static void load_cloud(Texture_State *texture_state, const char *cloud_dir) {
   char path[512];
   for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
@@ -457,6 +460,8 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   IMG_PATH(house1_dir, "living_house/");
   IMG_PATH(house2_dir, "barn/");
   IMG_PATH(bridge_path, "bridge/");
+  IMG_PATH(swamp_flat_path, "swamp/flat/");
+  IMG_PATH(swamp_edge_path, "swamp/edge/");
   IMG_PATH(farmer_actions_dir1, "farmer1/");
   IMG_PATH(farmer_actions_dir2, "farmer2/");
   IMG_PATH(ox_dir, "ox/");
@@ -467,7 +472,6 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   IMG_PATH(oak_summer, "oak_summer/");
   IMG_PATH(oak_autumn, "oak_autumn/");
   IMG_PATH(oak_trunk_dir, "oak_trunk/");
-  IMG_PATH(oak_beam_dir, "oak_beam/");
 
   IMG_PATH(wheat_young_dir, "wheat_young/");
   IMG_PATH(wheat_middle_dir, "wheat_middle/");
@@ -487,6 +491,7 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   IMG_PATH(cloud_dir, "cloud/");
   IMG_PATH(puddle_dir, "puddle/");
   IMG_PATH(boundary_stone_dir, "boundary_stone/");
+  IMG_PATH(rocks_dir, "rocks/");
   IMG_PATH(wheat_sheaf_dir, "wheat_sheaf/");
   IMG_PATH(signs_dir, "signs/");
 
@@ -528,6 +533,8 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   load_tile_variants(texture_state->water_flat, water_flat_path);
   load_water_flow(texture_state->water_flow, water_flow_path);
   load_tile_variants(texture_state->bridge, bridge_path);
+  load_tile_variants(texture_state->swamp_flat, swamp_flat_path);
+  load_tile_variants(texture_state->swamp_edge, swamp_edge_path);
   load_tile_variants(texture_state->earth, earth_path);
   load_tile_variants(texture_state->arable_land, arable_land_path);
 
@@ -539,8 +546,8 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   load_cloud(texture_state, cloud_dir);
   load_puddle(texture_state, puddle_dir);
   load_oak_trunk(texture_state, oak_trunk_dir);
-  load_oak_beam(texture_state, oak_beam_dir);
   load_boundary_stone(texture_state, boundary_stone_dir);
+  load_rocks(texture_state, rocks_dir);
   load_wheat_sheaf(texture_state, wheat_sheaf_dir);
   load_signs(texture_state, signs_dir);
 
@@ -580,6 +587,8 @@ void free_texture_state(Texture_State* texture_state) {
     UnloadTexture(texture_state->bridge[i]);
     UnloadTexture(texture_state->earth[i]);
     UnloadTexture(texture_state->arable_land[i]);
+    UnloadTexture(texture_state->swamp_flat[i]);
+    UnloadTexture(texture_state->swamp_edge[i]);
   }
   for (int i = 0; i < FIGURE_MAX_FRAMES; i++) {
     UnloadTexture(texture_state->water_flow[i]);
@@ -589,6 +598,9 @@ void free_texture_state(Texture_State* texture_state) {
     UnloadTexture(texture_state->house2[d].tex);
   }
   UnloadTexture(texture_state->boundary_stone.tex);
+  for (int i = 0; i < ROCK_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->rock[i].tex);
+  }
   UnloadTexture(texture_state->wheat_sheaf.tex);
   UnloadTexture(texture_state->cursor.tex);
   UnloadTexture(texture_state->mansus_area_icon);
@@ -601,7 +613,6 @@ void free_texture_state(Texture_State* texture_state) {
   for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
     UnloadTexture(texture_state->puddle[d].tex);
     UnloadTexture(texture_state->oak_trunk[d].tex);
-    UnloadTexture(texture_state->oak_beam[d].tex);
     for (int f = 0; f < FIGURE_MAX_FRAMES; f++) {
       UnloadTexture(texture_state->cloud_drift[d][f].tex);
     }

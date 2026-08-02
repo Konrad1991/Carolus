@@ -22,7 +22,7 @@ bool map_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
       const Tile *t = &map->tiles[fy * map->w + fx];
-      if (t->occupied || t->figure_occupied || t->type == TILE_ROAD || t->type == TILE_WATER) return false;
+      if (t->occupied || t->figure_occupied || t->type == TILE_ROAD || t->type == TILE_WATER || t->type == TILE_SWAMP) return false;
     }
   }
   return true;
@@ -96,7 +96,7 @@ bool map_figure_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
     for (int fx = tx - fw + 1; fx <= tx; fx++) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
       const Tile *t = &map->tiles[fy * map->w + fx];
-      if (t->occupied || t->figure_occupied || t->type == TILE_WATER) return false;
+      if (t->occupied || t->figure_occupied || t->type == TILE_WATER || t->type == TILE_SWAMP) return false;
     }
   }
   return true;
@@ -108,14 +108,14 @@ bool map_mansus_is_placeable(const Map *map, int tx, int ty, int fw, int fh) {
       if (fx < 0 || fx >= map->w || fy < 0 || fy >= map->h) return false;
       const Tile *t = &map->tiles[fy * map->w + fx];
       if (t->occupied || t->figure_occupied || t->type == TILE_ROAD || t->type == TILE_WATER ||
-          t->type == TILE_MANSUSYARD) return false;
+          t->type == TILE_SWAMP || t->type == TILE_MANSUSYARD) return false;
     }
   }
   return true;
 }
 
 bool map_tile_walkable(const Tile *tile) {
-  return !tile->occupied && tile->type != TILE_WATER;
+  return !tile->occupied && tile->type != TILE_WATER && tile->type != TILE_SWAMP;
 }
 
 bool map_tile_free(const Tile *tile) {

@@ -14,6 +14,7 @@ static int tile_cost(const Tile *tile) {
     case TILE_MANSUSYARD: return 3;
     case TILE_SOIL: return 2;
     case TILE_WATER: return TILE_IMPASSABLE;
+    case TILE_SWAMP: return TILE_IMPASSABLE;
   }
   return TILE_IMPASSABLE;
 }

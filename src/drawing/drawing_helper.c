@@ -1,6 +1,12 @@
 #include "drawing/drawing_helper.h"
 #include <math.h>
 
+// Single source of truth for which way a felled tree's trunk extends,
+// per facing direction - used both for draw-order sort reach (drawing.c)
+// and for marking the tiles the trunk visually covers as occupied (update_figure.c).
+const int TREE_TRUNK_DIR_TX[FIGURE_DIR_COUNT] = {0, 1, 1, 1, 0, -1, -1, -1};
+const int TREE_TRUNK_DIR_TY[FIGURE_DIR_COUNT] = {1, 1, 0, -1, -1, -1, 0, 1};
+
 int tile_variant(int tx, int ty, int num_variants) {
   unsigned int h = (unsigned int)(tx * 73856093) ^ (unsigned int)(ty * 19349663);
   h ^= h >> 13;
@@ -92,7 +98,7 @@ Rectangle calc_object_screen_rectangle(TileState tile_state, const Object* o) {
   float scale = o->sprite.scale * tile_state.TILE_W / 64.0f;
   bool use_draw_pos = (o->kind == OBJECT_FIGURE && o->id != 0) || o->kind == OBJECT_WHEAT_TUFT;
   Vector2 anchor = use_draw_pos
-    ? iso_to_screen(tile_state, o->draw_x, o->draw_y)
+    ? iso_to_screen(tile_state, o->draw.x, o->draw.y)
     : iso_to_screen(tile_state, o->tx, o->ty);
   anchor.y -= o->z * tile_state.TILE_H;
   Vector2 pos = {
@@ -115,6 +121,19 @@ void draw_object_slice(TileState tile_state, const Object *o, Color tint, float 
   Rectangle dest = {
     dest_full.x, dest_full.y + dest_full.height * slice_from,
     dest_full.width, dest_full.height * (slice_to - slice_from),
+  };
+  DrawTexturePro(o->sprite.tex, source, dest, (Vector2){0, 0}, 0, tint);
+}
+
+void draw_object_slice_x(TileState tile_state, const Object *o, Color tint, float slice_from, float slice_to) {
+  Rectangle dest_full = calc_object_screen_rectangle(tile_state, o);
+  Rectangle source = {
+    o->sprite.tex.width * slice_from, 0,
+    o->sprite.tex.width * (slice_to - slice_from), (float)o->sprite.tex.height,
+  };
+  Rectangle dest = {
+    dest_full.x + dest_full.width * slice_from, dest_full.y,
+    dest_full.width * (slice_to - slice_from), dest_full.height,
   };
   DrawTexturePro(o->sprite.tex, source, dest, (Vector2){0, 0}, 0, tint);
 }

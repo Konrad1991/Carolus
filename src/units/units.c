@@ -23,8 +23,7 @@ static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodF
   fig->figure.action = action;
   fig->figure.action_timer = 0.0f;
   fig->figure.pending_action = FIGURE_ACTION_STAND;
-  fig->figure.gather_tx = fig->tx;
-  fig->figure.gather_ty = fig->ty;
+  fig->figure.gather = (Position){fig->tx, fig->ty};
   fig->figure.plow_route.phase = PLOW_PHASE_NONE;
   fig->figure.plowing = false;
   fig->figure.harvest_route.phase = HARVEST_PHASE_NONE;
@@ -69,37 +68,65 @@ void release_field_lock(GameState *game_state, unsigned int figure_id) {
   }
 }
 
+static void set_route_bounds(RouteBounds* route_bounds, Field* field) {
+  int min_tx = field->corners_field[0][0];
+  int max_tx = field->corners_field[1][0];
+  int min_ty = field->corners_field[0][1];
+  int max_ty = field->corners_field[1][1];
+  route_bounds->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
+  route_bounds->min_tx = min_tx;
+  route_bounds->max_tx = max_tx;
+  route_bounds->min_ty = min_ty;
+  route_bounds->max_ty = max_ty;
+}
+
+static Position calc_entry_point(RouteBounds* route_bounds, Object* fig, bool* near_min_tx, bool* near_min_ty) {
+  Position position = {0};
+  *near_min_tx = abs(fig->tx - route_bounds->min_tx) <= abs(fig->tx - route_bounds->max_tx);
+  *near_min_ty = abs(fig->ty - route_bounds->min_ty) <= abs(fig->ty - route_bounds->max_ty);
+  position.x = (*near_min_tx) ? route_bounds->min_tx : route_bounds->max_tx;
+  position.y = (*near_min_ty) ? route_bounds->min_ty : route_bounds->max_ty;
+  return position;
+}
+
+static RowSweepState calc_row_sweep_state(const RouteBounds* route_bounds, Position position, bool near_min_tx, bool near_min_ty) {
+  RowSweepState row_sweep_state;
+  if (route_bounds->row_along_tx) {
+    row_sweep_state.row = position.y;
+    row_sweep_state.step_dir = near_min_ty ? 1 : -1;
+    row_sweep_state.cursor = position.x;
+    row_sweep_state.sweep_dir = near_min_tx ? 1 : -1;
+  } else {
+    row_sweep_state.row = position.x;
+    row_sweep_state.step_dir = near_min_tx ? 1 : -1;
+    row_sweep_state.cursor = position.y;
+    row_sweep_state.sweep_dir = near_min_ty ? 1 : -1;
+  }
+  return row_sweep_state;
+}
+
 void start_plow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                             GameState *game_state, Field *field) {
+                      GameState *game_state, Field *field) {
   release_field_lock(game_state, fig->id);
   field->worked_by_figure_id = fig->id;
 
-  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
-  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
-  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
-  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
-  int entry_tx = near_min_tx ? min_tx : max_tx;
-  int entry_ty = near_min_ty ? min_ty : max_ty;
-
   PlowRoute *route = &fig->figure.plow_route;
+  set_route_bounds(&route->route_bounds, field);
+  bool near_min_tx;
+  bool near_min_ty;
+  Position position = calc_entry_point(&route->route_bounds, fig, &near_min_tx, &near_min_ty);
   route->phase = PLOW_PHASE_APPROACH;
-  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
-  route->min_tx = min_tx;
-  route->max_tx = max_tx;
-  route->min_ty = min_ty;
-  route->max_ty = max_ty;
-  if (route->row_along_tx) {
-    route->step_coord = entry_ty;
+  if (route->route_bounds.row_along_tx) {
+    route->step_coord = position.y;
     route->step_dir = near_min_ty ? 1 : -1;
     route->sweep_positive = near_min_tx;
   } else {
-    route->step_coord = entry_tx;
+    route->step_coord = position.x;
     route->step_dir = near_min_tx ? 1 : -1;
     route->sweep_positive = near_min_ty;
   }
   fig->figure.plowing = false;
-
-  figure_walk_to(fig, map, flood_field_state, entry_tx, entry_ty);
+  figure_walk_to(fig, map, flood_field_state, position);
 }
 
 static bool is_farmer_species(FigureSpecies species) {
@@ -148,114 +175,53 @@ static bool assign_figures_to_mansus(const Selection *sel, ObjectArray *objects,
 }
 
 void start_harvest_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                                GameState *game_state, Field *field) {
+                         GameState *game_state, Field *field) {
   release_field_lock(game_state, fig->id);
   field->worked_by_figure_id = fig->id;
-
-  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
-  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
-  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
-  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
-  int entry_tx = near_min_tx ? min_tx : max_tx;
-  int entry_ty = near_min_ty ? min_ty : max_ty;
-
   HarvestRoute *route = &fig->figure.harvest_route;
+  set_route_bounds(&route->route_bounds, field);
+  bool near_min_tx;
+  bool near_min_ty;
+  Position position = calc_entry_point(&route->route_bounds, fig, &near_min_tx, &near_min_ty);
   route->phase = HARVEST_PHASE_WALKING;
-  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
-  route->min_tx = min_tx;
-  route->max_tx = max_tx;
-  route->min_ty = min_ty;
-  route->max_ty = max_ty;
-  if (route->row_along_tx) {
-    route->row = entry_ty;
-    route->step_dir = near_min_ty ? 1 : -1;
-    route->cursor = entry_tx;
-    route->sweep_dir = near_min_tx ? 1 : -1;
-  } else {
-    route->row = entry_tx;
-    route->step_dir = near_min_tx ? 1 : -1;
-    route->cursor = entry_ty;
-    route->sweep_dir = near_min_ty ? 1 : -1;
-  }
+  route->row_sweep_state = calc_row_sweep_state(&route->route_bounds, position, near_min_tx, near_min_ty);
   route->mow_timer = 0.0f;
   route->mowing_done = false;
-
-  int stand_tx, stand_ty;
-  harvest_route_stand_tile(route, &stand_tx, &stand_ty);
-  figure_walk_to(fig, map, flood_field_state, stand_tx, stand_ty);
-  fig->figure.gather_tx = entry_tx;
-  fig->figure.gather_ty = entry_ty;
+  Position stand_position;
+  harvest_route_stand_tile(route, &stand_position);
+  figure_walk_to(fig, map, flood_field_state, stand_position);
+  fig->figure.gather = position;
 }
 
 void start_dig_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                            GameState *game_state, Field *field) {
+                     GameState *game_state, Field *field) {
   release_field_lock(game_state, fig->id);
   field->worked_by_figure_id = fig->id;
-
-  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
-  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
-  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
-  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
-  int entry_tx = near_min_tx ? min_tx : max_tx;
-  int entry_ty = near_min_ty ? min_ty : max_ty;
-
   DigRoute *route = &fig->figure.dig_route;
   route->phase = DIG_PHASE_WALKING;
-  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
-  route->min_tx = min_tx;
-  route->max_tx = max_tx;
-  route->min_ty = min_ty;
-  route->max_ty = max_ty;
-  if (route->row_along_tx) {
-    route->row = entry_ty;
-    route->step_dir = near_min_ty ? 1 : -1;
-    route->cursor = entry_tx;
-    route->sweep_dir = near_min_tx ? 1 : -1;
-  } else {
-    route->row = entry_tx;
-    route->step_dir = near_min_tx ? 1 : -1;
-    route->cursor = entry_ty;
-    route->sweep_dir = near_min_ty ? 1 : -1;
-  }
+  set_route_bounds(&route->route_bounds, field);
+  bool near_min_tx;
+  bool near_min_ty;
+  Position position = calc_entry_point(&route->route_bounds, fig, &near_min_tx, &near_min_ty);
+  route->row_sweep_state = calc_row_sweep_state(&route->route_bounds, position, near_min_tx, near_min_ty);
   route->dig_timer = 0.0f;
-
-  figure_walk_to(fig, map, flood_field_state, entry_tx, entry_ty);
+  figure_walk_to(fig, map, flood_field_state, position);
 }
 
 void start_sow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
-                            GameState *game_state, Mansus *mansus, Field *field) {
+                     GameState *game_state, Mansus *mansus, Field *field) {
   release_field_lock(game_state, fig->id);
   field->worked_by_figure_id = fig->id;
   mansus->goods.grains -= FIELD_SOW_GRAIN_COST;
-
-  int min_tx = field->corners_field[0][0], max_tx = field->corners_field[1][0];
-  int min_ty = field->corners_field[0][1], max_ty = field->corners_field[1][1];
-  bool near_min_tx = abs(fig->tx - min_tx) <= abs(fig->tx - max_tx);
-  bool near_min_ty = abs(fig->ty - min_ty) <= abs(fig->ty - max_ty);
-  int entry_tx = near_min_tx ? min_tx : max_tx;
-  int entry_ty = near_min_ty ? min_ty : max_ty;
-
   SowRoute *route = &fig->figure.sow_route;
   route->phase = SOW_PHASE_WALKING;
-  route->row_along_tx = (max_tx - min_tx) >= (max_ty - min_ty);
-  route->min_tx = min_tx;
-  route->max_tx = max_tx;
-  route->min_ty = min_ty;
-  route->max_ty = max_ty;
-  if (route->row_along_tx) {
-    route->row = entry_ty;
-    route->step_dir = near_min_ty ? 1 : -1;
-    route->cursor = entry_tx;
-    route->sweep_dir = near_min_tx ? 1 : -1;
-  } else {
-    route->row = entry_tx;
-    route->step_dir = near_min_tx ? 1 : -1;
-    route->cursor = entry_ty;
-    route->sweep_dir = near_min_ty ? 1 : -1;
-  }
-
+  set_route_bounds(&route->route_bounds, field);
+  bool near_min_tx;
+  bool near_min_ty;
+  Position position = calc_entry_point(&route->route_bounds, fig, &near_min_tx, &near_min_ty);
+  route->row_sweep_state = calc_row_sweep_state(&route->route_bounds, position, near_min_tx, near_min_ty);
   // Sowing walks the figure onto the tile itself, unlike harvesting's stand-beside offset.
-  figure_walk_to(fig, map, flood_field_state, entry_tx, entry_ty);
+  figure_walk_to(fig, map, flood_field_state, position);
 }
 
 static int calc_n_walkers(const Selection* sel, ObjectArray* objects,
@@ -277,8 +243,7 @@ static int calc_n_walkers(const Selection* sel, ObjectArray* objects,
       abs(objects->data[i].tx - tx) <= 1 && abs(objects->data[i].ty - ty) <= 1;
     if (adjacent) {
       set_figure_action(&objects->data[i], FIGURE_ACTION_CHOP, map, flood_field_state, game_state);
-      objects->data[i].figure.gather_tx = tx;
-      objects->data[i].figure.gather_ty = ty;
+      objects->data[i].figure.gather = (Position){tx, ty};
     } else {
       n_walkers++;
     }
@@ -293,15 +258,13 @@ static void update_figure_attributes(ObjectArray* objects, GameState *game_state
                                      const bool lands_adjacent) {
   objects->data[i].figure.flood_field_idx = field_idx;
   objects->data[i].figure.direct_walking = false;
-  objects->data[i].figure.target_tx = my_target_tx;
-  objects->data[i].figure.target_ty = my_target_ty;
+  objects->data[i].figure.target = (Position){my_target_tx, my_target_ty};
   objects->data[i].figure.prev_tile = -1;
   objects->data[i].figure.best_distance_to_target = -1;
   objects->data[i].figure.pacing_streak = 0;
   objects->data[i].figure.speed = FIGURE_SPEED_TILES_PER_SECOND;
   objects->data[i].figure.pending_action = lands_adjacent ? FIGURE_ACTION_CHOP : FIGURE_ACTION_STAND;
-  objects->data[i].figure.gather_tx = tx;
-  objects->data[i].figure.gather_ty = ty;
+  objects->data[i].figure.gather = (Position){tx, ty};
 
   if (objects->data[i].figure.species == FIGURE_SPECIES_OX) {
     objects->data[i].figure.plow_route.phase = PLOW_PHASE_NONE;

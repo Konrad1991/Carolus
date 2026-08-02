@@ -127,8 +127,7 @@ static void scatter_wheat_tufts(ObjectArray *objects, const Texture_State *textu
         if (dx > max_x) dx = max_x;
         if (dy < min_y) dy = min_y;
         if (dy > max_y) dy = max_y;
-        tuft.draw_x = dx;
-        tuft.draw_y = dy;
+        tuft.draw = (PositionFloat){dx, dy};
         object_array_push(objects, tuft);
         if (t) t->wheat_tuft_ids[t->wheat_tuft_count++] = tuft.id;
       }

@@ -8,9 +8,9 @@
 #include <math.h>
 
 
-FigureDirection detect_figure_direction(const int x0, const int x1, const int y0, const int y1) {
-  const int dx = x1 - x0;
-  const int dy = y1 - y0;
+FigureDirection detect_figure_direction(Position from, Position to) {
+  const int dx = to.x - from.x;
+  const int dy = to.y - from.y;
   if (dx == 0 && dy > 0) return FIGURE_DIR_FRONT;
   if (dx > 0 && dy > 0) return FIGURE_DIR_FRONT_RIGHT;
   if (dx > 0 && dy == 0) return FIGURE_DIR_RIGHT;
@@ -23,23 +23,23 @@ FigureDirection detect_figure_direction(const int x0, const int x1, const int y0
 }
 
 static void apply_gather_pose(Object *figure) {
-  int gather_x = figure->figure.gather_tx;
-  int gather_y = figure->figure.gather_ty;
-  float delta_x = (float)(gather_x - figure->tx);
-  float delta_y = (float)(gather_y - figure->ty);
+  Position gather = figure->figure.gather;
+  float delta_x = (float)(gather.x - figure->tx);
+  float delta_y = (float)(gather.y - figure->ty);
   float distance = sqrtf(delta_x * delta_x + delta_y * delta_y);
   if (distance < 0.001f) {
-    figure->draw_x = (float)figure->tx;
-    figure->draw_y = (float)figure->ty;
+    figure->draw = (PositionFloat){(float)figure->tx, (float)figure->ty};
     return;
   }
   if (figure->figure.action == FIGURE_ACTION_CHOP || figure->figure.action == FIGURE_ACTION_MOW) {
-    FigureDirection direction = detect_figure_direction(figure->tx, gather_x, figure->ty, gather_y);
+    FigureDirection direction = detect_figure_direction((Position){figure->tx, figure->ty}, gather);
     if (direction != FIGURE_DIR_COUNT) figure->facing = direction;
   }
   const float lean = 0.3f;
-  figure->draw_x = (float)figure->tx + (delta_x / distance) * lean;
-  figure->draw_y = (float)figure->ty + (delta_y / distance) * lean;
+  figure->draw = (PositionFloat){
+    (float)figure->tx + (delta_x / distance) * lean,
+    (float)figure->ty + (delta_y / distance) * lean
+  };
 }
 
 static void apply_stationary_sprite(Object *figure, const Texture_State *texture_state) {
@@ -77,13 +77,13 @@ static void handle_idle(Object *figure, const Texture_State *texture_state) {
 
 void figure_release_reservation(Map *map, Object *figure) {
   if (figure->figure.progress <= 0.0f) return;
-  Tile *tile = map_tile(map, figure->figure.step_tx, figure->figure.step_ty);
+  Tile *tile = map_tile(map, figure->figure.step.x, figure->figure.step.y);
   if (tile) tile->figure_occupied = 0;
 }
 
 static void apply_walk_sprite(Object *figure, const Texture_State *texture_state,
-                              int segment_start_x, int segment_start_y, int segment_end_x, int segment_end_y) {
-  FigureDirection direction = detect_figure_direction(segment_start_x, segment_end_x, segment_start_y, segment_end_y);
+                              Position segment_start, Position segment_end) {
+  FigureDirection direction = detect_figure_direction(segment_start, segment_end);
   if (direction == FIGURE_DIR_COUNT) return;
   figure->facing = direction;
   if (figure->figure.species == FIGURE_SPECIES_OX) {
@@ -107,45 +107,46 @@ static void apply_walk_sprite(Object *figure, const Texture_State *texture_state
   figure->sprite.scale = sprite->scale;
 }
 
-static float step_distance_between_tiles(int start_x, int start_y, int end_x, int end_y) {
-  bool diagonal = start_x != end_x && start_y != end_y;
+static float step_distance_between_tiles(Position start, Position end) {
+  bool diagonal = start.x != end.x && start.y != end.y;
   return diagonal ? sqrtf(2.0f) : 1.0f;
 }
 
-static void interpolate_draw_position(Object *figure, int segment_start_x, int segment_start_y, int segment_end_x, int segment_end_y) {
+static void interpolate_draw_position(Object *figure, Position segment_start, Position segment_end) {
   float progress = figure->figure.progress;
-  figure->draw_x = segment_start_x + (segment_end_x - segment_start_x) * progress;
-  figure->draw_y = segment_start_y + (segment_end_y - segment_start_y) * progress;
+  figure->draw = (PositionFloat){
+    segment_start.x + (segment_end.x - segment_start.x) * progress,
+    segment_start.y + (segment_end.y - segment_start.y) * progress
+  };
 }
 
-static void commit_tile_arrival(Object *figure, Map *map, int departed_tile, int arrival_x, int arrival_y) {
+static void commit_tile_arrival(Object *figure, Map *map, int departed_tile, Position arrival) {
   figure->figure.progress = 0.0f;
   figure->figure.prev_tile = departed_tile;
   Tile *departed_map_tile = map_tile(map, figure->tx, figure->ty);
   if (departed_map_tile) departed_map_tile->figure_occupied = 0;
-  figure->tx = arrival_x;
-  figure->ty = arrival_y;
+  figure->tx = arrival.x;
+  figure->ty = arrival.y;
   Tile *arrival_map_tile = map_tile(map, figure->tx, figure->ty);
   if (arrival_map_tile) arrival_map_tile->figure_occupied = 1;
-  figure->draw_x = (float)figure->tx;
-  figure->draw_y = (float)figure->ty;
+  figure->draw = (PositionFloat){(float)figure->tx, (float)figure->ty};
 }
 
 static bool advance_along_segment(Object *figure, Map *map, int current_tile, int next_tile, float speed,
-                                  int *segment_start_x, int *segment_start_y, int *segment_end_x, int *segment_end_y) {
-  node_to_xy(current_tile, map->w, segment_start_x, segment_start_y);
-  node_to_xy(next_tile, map->w, segment_end_x, segment_end_y);
-  float step_distance = step_distance_between_tiles(*segment_start_x, *segment_start_y, *segment_end_x, *segment_end_y);
+                                  Position *segment_start, Position *segment_end) {
+  node_to_xy(current_tile, map->w, &segment_start->x, &segment_start->y);
+  node_to_xy(next_tile, map->w, &segment_end->x, &segment_end->y);
+  float step_distance = step_distance_between_tiles(*segment_start, *segment_end);
   figure->figure.progress += (speed / step_distance) * game_delta_time();
   if (figure->figure.progress < 1.0f) {
-    interpolate_draw_position(figure, *segment_start_x, *segment_start_y, *segment_end_x, *segment_end_y);
+    interpolate_draw_position(figure, *segment_start, *segment_end);
     return false;
   }
-  commit_tile_arrival(figure, map, current_tile, *segment_end_x, *segment_end_y);
+  commit_tile_arrival(figure, map, current_tile, *segment_end);
   return true;
 }
 
-void figure_walk_to(Object *figure, Map *map, FloodFieldArray *flood_field_state, int target_tx, int target_ty) {
+void figure_walk_to(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position position) {
   if (figure->figure.flood_field_idx >= 0) {
     figure_release_reservation(map, figure);
     flood_field_array_release(flood_field_state, figure->figure.flood_field_idx);
@@ -153,50 +154,47 @@ void figure_walk_to(Object *figure, Map *map, FloodFieldArray *flood_field_state
     figure_release_reservation(map, figure);
   }
   figure->figure.direct_walking = false;
-  int node = node_index(target_tx, target_ty, map->w);
+  int node = node_index(position.x, position.y, map->w);
   FloodField field = flood_fill(map, &node, 1, true);
   field.n_figures = 1;
   field.active = true;
 
   figure->figure.flood_field_idx = flood_field_array_push(flood_field_state, field);
-  figure->figure.target_tx = target_tx;
-  figure->figure.target_ty = target_ty;
+  figure->figure.target = position;
   figure->figure.prev_tile = -1;
   figure->figure.best_distance_to_target = -1;
   figure->figure.pacing_streak = 0;
   figure->figure.speed = FIGURE_SPEED_TILES_PER_SECOND;
   figure->figure.pending_action = FIGURE_ACTION_STAND;
-  figure->figure.gather_tx = target_tx;
-  figure->figure.gather_ty = target_ty;
+  figure->figure.gather = position;
 }
 
 // For short local hops within an already-known-clear area (harvest/plow route steps):
 // steps straight toward the target one tile at a time instead of flooding the whole map.
-static void figure_walk_to_direct(Object *figure, Map *map, FloodFieldArray *flood_field_state, int target_tx, int target_ty) {
+static void figure_walk_to_direct(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position target) {
   if (figure->figure.flood_field_idx >= 0) {
     figure_release_reservation(map, figure);
     flood_field_array_release(flood_field_state, figure->figure.flood_field_idx);
     figure->figure.flood_field_idx = -1;
   }
   figure->figure.direct_walking = true;
-  figure->figure.target_tx = target_tx;
-  figure->figure.target_ty = target_ty;
+  figure->figure.target = target;
   figure->figure.progress = 0.0f;
   figure->figure.prev_tile = -1;
   figure->figure.best_distance_to_target = -1;
   figure->figure.pacing_streak = 0;
   figure->figure.speed = FIGURE_SPEED_TILES_PER_SECOND;
   figure->figure.pending_action = FIGURE_ACTION_STAND;
-  figure->figure.gather_tx = target_tx;
-  figure->figure.gather_ty = target_ty;
+  figure->figure.gather = target;
 }
 
 static void start_sweep_leg(Object *figure, Map *map, FloodFieldArray *flood_field_state) {
   PlowRoute *route = &figure->figure.plow_route;
-  if (route->row_along_tx) {
-    figure_walk_to_direct(figure, map, flood_field_state, route->sweep_positive ? route->max_tx : route->min_tx, route->step_coord);
+  const RouteBounds* rb = &route->route_bounds;
+  if (rb->row_along_tx) {
+    figure_walk_to_direct(figure, map, flood_field_state, (Position){route->sweep_positive ? rb->max_tx : rb->min_tx, route->step_coord});
   } else {
-    figure_walk_to_direct(figure, map, flood_field_state, route->step_coord, route->sweep_positive ? route->max_ty : route->min_ty);
+    figure_walk_to_direct(figure, map, flood_field_state, (Position){route->step_coord, route->sweep_positive ? rb->max_ty : rb->min_ty});
   }
 }
 
@@ -212,8 +210,8 @@ static void advance_plow_route(Object *figure, Map *map, FloodFieldArray *flood_
       return;
     case PLOW_PHASE_SWEEP: {
       int next_row = route->step_coord + route->step_dir;
-      int row_min = route->row_along_tx ? route->min_ty : route->min_tx;
-      int row_max = route->row_along_tx ? route->max_ty : route->max_tx;
+      int row_min = route->route_bounds.row_along_tx ? route->route_bounds.min_ty : route->route_bounds.min_tx;
+      int row_max = route->route_bounds.row_along_tx ? route->route_bounds.max_ty : route->route_bounds.max_tx;
       if (next_row < row_min || next_row > row_max) {
         figure->figure.plowing = false;
         route->phase = PLOW_PHASE_NONE;
@@ -234,15 +232,15 @@ static void advance_plow_route(Object *figure, Map *map, FloodFieldArray *flood_
 }
 
 
-void harvest_route_field_tile(const HarvestRoute *route, int *out_tx, int *out_ty) {
-  *out_tx = route->row_along_tx ? route->cursor : route->row;
-  *out_ty = route->row_along_tx ? route->row : route->cursor;
+void harvest_route_field_tile(const HarvestRoute *route, Position* position) {
+  position->x = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : route->row_sweep_state.row;
+  position->y = route->route_bounds.row_along_tx ? route->row_sweep_state.row : route->row_sweep_state.cursor;
 }
 
-void harvest_route_stand_tile(const HarvestRoute *route, int *out_tx, int *out_ty) {
-  int stand_row = route->row - route->step_dir;
-  *out_tx = route->row_along_tx ? route->cursor : stand_row;
-  *out_ty = route->row_along_tx ? stand_row : route->cursor;
+void harvest_route_stand_tile(const HarvestRoute *route, Position* position) {
+  int stand_row = route->row_sweep_state.row - route->row_sweep_state.step_dir;
+  position->x = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : stand_row;
+  position->y = route->route_bounds.row_along_tx ? stand_row : route->row_sweep_state.cursor;
 }
 
 static void harvest_tile(Map *map, ObjectArray *objects, int tx, int ty) {
@@ -352,22 +350,22 @@ static int remove_sheaf_at(Map *map, ObjectArray *objects, int tx, int ty) {
 
 static void walk_to_next_mow_tile(Object *figure, Map *map, FloodFieldArray *flood_field_state) {
   HarvestRoute *route = &figure->figure.harvest_route;
-  int field_tx, field_ty, stand_tx, stand_ty;
-  harvest_route_field_tile(route, &field_tx, &field_ty);
-  harvest_route_stand_tile(route, &stand_tx, &stand_ty);
+  Position field_position;
+  Position stand_position;
+  harvest_route_field_tile(route, &field_position);
+  harvest_route_stand_tile(route, &stand_position);
 
   route->phase = HARVEST_PHASE_WALKING;
   figure->figure.action = FIGURE_ACTION_WALK;
-  figure_walk_to_direct(figure, map, flood_field_state, stand_tx, stand_ty);
-  figure->figure.gather_tx = field_tx;
-  figure->figure.gather_ty = field_ty;
+  figure_walk_to_direct(figure, map, flood_field_state, stand_position);
+  figure->figure.gather = field_position;
 }
 
 static void start_next_sheaf_leg(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
                                  GameState *game_state) {
   HarvestRoute *route = &figure->figure.harvest_route;
   int sheaf_tx, sheaf_ty;
-  if (!find_nearest_sheaf(map, objects, route->min_tx, route->max_tx, route->min_ty, route->max_ty,
+  if (!find_nearest_sheaf(map, objects, route->route_bounds.min_tx, route->route_bounds.max_tx, route->route_bounds.min_ty, route->route_bounds.max_ty,
                           figure->tx, figure->ty, &sheaf_tx, &sheaf_ty)) {
     if (route->mowing_done) {
       route->phase = HARVEST_PHASE_NONE;
@@ -380,7 +378,7 @@ static void start_next_sheaf_leg(Object *figure, Map *map, ObjectArray *objects,
   }
   route->phase = HARVEST_PHASE_TO_SHEAF;
   figure->figure.action = route->wearing_basket ? FIGURE_ACTION_CARRY_WALK : FIGURE_ACTION_WALK;
-  figure_walk_to_direct(figure, map, flood_field_state, sheaf_tx, sheaf_ty);
+  figure_walk_to_direct(figure, map, flood_field_state, (Position){sheaf_tx, sheaf_ty});
 }
 
 static void start_walk_to_barn(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
@@ -397,7 +395,8 @@ static void start_walk_to_barn(Object *figure, Map *map, ObjectArray *objects, F
   }
   route->phase = HARVEST_PHASE_TO_BARN;
   figure->figure.action = FIGURE_ACTION_CARRY_WALK;
-  figure_walk_to(figure, map, flood_field_state, approach_tx, approach_ty);
+  Position approach = (Position){approach_tx, approach_ty};
+  figure_walk_to(figure, map, flood_field_state, approach);
 }
 
 static void advance_harvest_route(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
@@ -443,7 +442,8 @@ static void start_wood_walk_to_barn(Object *figure, Map *map, ObjectArray *objec
   }
   route->phase = WOOD_PHASE_TO_BARN;
   figure->figure.action = FIGURE_ACTION_CARRY_WALK;
-  figure_walk_to(figure, map, flood_field_state, approach_tx, approach_ty);
+  Position approach = (Position){approach_tx, approach_ty};
+  figure_walk_to(figure, map, flood_field_state, approach);
 }
 
 static void advance_wood_route(Object *figure, GameState *game_state) {
@@ -457,23 +457,23 @@ static void advance_wood_route(Object *figure, GameState *game_state) {
 }
 
 static bool advance_harvest_cursor(HarvestRoute *route, int *out_tx, int *out_ty) {
-  int row_axis_min = route->row_along_tx ? route->min_tx : route->min_ty;
-  int row_axis_max = route->row_along_tx ? route->max_tx : route->max_ty;
-  int next_cursor = route->cursor + route->sweep_dir;
+  int row_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_tx : route->route_bounds.min_ty;
+  int row_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_tx : route->route_bounds.max_ty;
+  int next_cursor = route->row_sweep_state.cursor + route->row_sweep_state.sweep_dir;
 
   if (next_cursor < row_axis_min || next_cursor > row_axis_max) {
-    int step_axis_min = route->row_along_tx ? route->min_ty : route->min_tx;
-    int step_axis_max = route->row_along_tx ? route->max_ty : route->max_tx;
-    int next_row = route->row + route->step_dir;
+    int step_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_ty : route->route_bounds.min_tx;
+    int step_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_ty : route->route_bounds.max_tx;
+    int next_row = route->row_sweep_state.row + route->row_sweep_state.step_dir;
     if (next_row < step_axis_min || next_row > step_axis_max) return false;
-    route->row = next_row;
-    route->sweep_dir = -route->sweep_dir;
+    route->row_sweep_state.row = next_row;
+    route->row_sweep_state.sweep_dir = -route->row_sweep_state.sweep_dir;
   } else {
-    route->cursor = next_cursor;
+    route->row_sweep_state.cursor = next_cursor;
   }
 
-  *out_tx = route->row_along_tx ? route->cursor : route->row;
-  *out_ty = route->row_along_tx ? route->row : route->cursor;
+  *out_tx = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : route->row_sweep_state.row;
+  *out_ty = route->route_bounds.row_along_tx ? route->row_sweep_state.row : route->row_sweep_state.cursor;
   return true;
 }
 
@@ -482,20 +482,20 @@ static void update_harvest_mowing(Object *figure, Map *map, ObjectArray *objects
   const float harvest_mow_seconds = 1.0f;
   HarvestRoute *route = &figure->figure.harvest_route;
 
-  int field_tx, field_ty;
-  harvest_route_field_tile(route, &field_tx, &field_ty);
+  Position field_position;
+  harvest_route_field_tile(route, &field_position);
 
   bool just_arrived = route->mow_timer <= 0.0f;
-  if (!just_arrived || tile_has_harvestable_tuft(map, objects, field_tx, field_ty)) {
+  if (!just_arrived || tile_has_harvestable_tuft(map, objects, field_position.x, field_position.y)) {
     route->mow_timer += game_delta_time();
     if (route->mow_timer < harvest_mow_seconds) return;
-    harvest_tile(map, objects, field_tx, field_ty);
+    harvest_tile(map, objects, field_position.x, field_position.y);
   }
 
-  int row_before = route->row;
+  int row_before = route->row_sweep_state.row;
   int next_field_tx, next_field_ty;
   bool has_next_tile = advance_harvest_cursor(route, &next_field_tx, &next_field_ty);
-  bool row_finished = !has_next_tile || route->row != row_before;
+  bool row_finished = !has_next_tile || route->row_sweep_state.row != row_before;
 
   if (row_finished) {
     route->mowing_done = !has_next_tile;
@@ -526,7 +526,8 @@ static void update_harvest_picking(Object *figure, Map *map, ObjectArray *object
   route->wearing_basket = true;
 
   int next_tx, next_ty;
-  bool more_sheaves = find_nearest_sheaf(map, objects, route->min_tx, route->max_tx, route->min_ty, route->max_ty,
+  bool more_sheaves = find_nearest_sheaf(map, objects,
+                                         route->route_bounds.min_tx, route->route_bounds.max_tx, route->route_bounds.min_ty, route->route_bounds.max_ty,
                                         figure->tx, figure->ty, &next_tx, &next_ty);
 
   if (route->carried_sheaves >= basket_capacity || !more_sheaves) {
@@ -534,7 +535,117 @@ static void update_harvest_picking(Object *figure, Map *map, ObjectArray *object
   } else {
     route->phase = HARVEST_PHASE_TO_SHEAF;
     figure->figure.action = FIGURE_ACTION_CARRY_WALK;
-    figure_walk_to_direct(figure, map, flood_field_state, next_tx, next_ty);
+    figure_walk_to_direct(figure, map, flood_field_state, (Position){next_tx, next_ty});
+  }
+}
+
+// Trunk art spans TREE_TRUNK_TILE_SPAN tiles total (base + reach), only
+// south-east (the current fixed fall direction) calibrated so far - extend
+// per-direction once more rotations are checked.
+#define TREE_TRUNK_REACH_TILE_COUNT (TREE_TRUNK_TILE_SPAN - 1)
+
+static int tree_trunk_reach_tiles(FigureDirection facing, int tx, int ty, Position out[TREE_TRUNK_REACH_TILE_COUNT]) {
+  if (facing != FIGURE_DIR_RIGHT) return 0;
+  for (int step = 1; step <= TREE_TRUNK_REACH_TILE_COUNT; step++) {
+    out[step - 1] = (Position){tx + TREE_TRUNK_DIR_TX[facing] * step, ty + TREE_TRUNK_DIR_TY[facing] * step};
+  }
+  return TREE_TRUNK_REACH_TILE_COUNT;
+}
+
+static int find_figure_at_tile(const ObjectArray *objects, int tx, int ty) {
+  for (int i = 0; i < objects->count; i++) {
+    if (objects->data[i].kind == OBJECT_FIGURE && objects->data[i].tx == tx && objects->data[i].ty == ty) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// map_free_tiles_near starts its search at distance 0 - the figure's own
+// current tile - so it would happily hand back that same tile as "free"
+// whenever it isn't otherwise marked occupied (e.g. the ring position behind
+// a felled trunk, which isn't part of the trunk's footprint). Search from
+// distance 1 instead so a relocation always actually moves the figure.
+static bool find_free_tile_at_least_one_away(Map *map, int from_tx, int from_ty, int *out_tx, int *out_ty) {
+  int max_d = map->w + map->h;
+  for (int d = 1; d <= max_d; d++) {
+    int x0 = from_tx - d, x1 = from_tx + d;
+    int y0 = from_ty - d, y1 = from_ty + d;
+    for (int y = y0; y <= y1; y++) {
+      for (int x = x0; x <= x1; x++) {
+        if (x != x0 && x != x1 && y != y0 && y != y1) continue;
+        const Tile *t = map_tile(map, x, y);
+        if (!t || !map_tile_free(t)) continue;
+        *out_tx = x;
+        *out_ty = y;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Only handles a figure standing still (progress == 0): a figure mid-step
+// between tiles also holds a flood-field path reservation that would need
+// releasing through FloodFieldArray, which isn't available here.
+static void relocate_figure_off_tile(Object *figure, Map *map) {
+  if (figure->figure.progress > 0.0f) return;
+  int free_tx, free_ty;
+  if (!find_free_tile_at_least_one_away(map, figure->tx, figure->ty, &free_tx, &free_ty)) return;
+
+  Tile *old_tile = map_tile(map, figure->tx, figure->ty);
+  if (old_tile) old_tile->figure_occupied = 0;
+
+  figure->tx = free_tx;
+  figure->ty = free_ty;
+  figure->draw = (PositionFloat){(float)free_tx, (float)free_ty};
+
+  Tile *new_tile = map_tile(map, free_tx, free_ty);
+  if (new_tile) new_tile->figure_occupied = 1;
+}
+
+static int find_object_of_kind_at_tile(const ObjectArray *objects, ObjectKind kind, int tx, int ty) {
+  for (int i = 0; i < objects->count; i++) {
+    if (objects->data[i].kind == kind && objects->data[i].tx == tx && objects->data[i].ty == ty) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Rocks are static decoration, not figures - no walk animation or map_place_object
+// bookkeeping to worry about here, just move it and flip the occupied flags.
+static void relocate_rock_off_tile(Object *rock, Map *map) {
+  int free_tx, free_ty;
+  if (!find_free_tile_at_least_one_away(map, rock->tx, rock->ty, &free_tx, &free_ty)) return;
+
+  Tile *old_tile = map_tile(map, rock->tx, rock->ty);
+  if (old_tile) old_tile->occupied = 0;
+
+  rock->tx = free_tx;
+  rock->ty = free_ty;
+
+  Tile *new_tile = map_tile(map, free_tx, free_ty);
+  if (new_tile) new_tile->occupied = 1;
+}
+
+static void set_tree_reach_tiles_occupied(Map *map, ObjectArray *objects, int tx, int ty, FigureDirection facing, bool occupied) {
+  Position reach_tiles[TREE_TRUNK_REACH_TILE_COUNT];
+  int count = tree_trunk_reach_tiles(facing, tx, ty, reach_tiles);
+  for (int i = 0; i < count; i++) {
+    Tile *tile = map_tile(map, reach_tiles[i].x, reach_tiles[i].y);
+    if (!tile) continue;
+    tile->occupied = occupied;
+    if (occupied) {
+      int figure_idx = find_figure_at_tile(objects, reach_tiles[i].x, reach_tiles[i].y);
+      if (figure_idx >= 0) relocate_figure_off_tile(&objects->data[figure_idx], map);
+
+      // A rock scattered here was placed back when the tree only blocked its
+      // own base tile - the trunk's reach growing to cover this tile once it
+      // falls is new, and the rock never got a chance to react to that.
+      int rock_idx = find_object_of_kind_at_tile(objects, OBJECT_ROCK, reach_tiles[i].x, reach_tiles[i].y);
+      if (rock_idx >= 0) relocate_rock_off_tile(&objects->data[rock_idx], map);
+    }
   }
 }
 
@@ -547,28 +658,30 @@ static void update_wood_picking(Object *figure, Map *map, ObjectArray *objects, 
 
   int tree_idx = object_array_find_by_id(objects, route->tree_id);
   if (tree_idx >= 0) {
-    map_clear_object(map, &objects->data[tree_idx]);
+    Object *tree = &objects->data[tree_idx];
+    set_tree_reach_tiles_occupied(map, objects, tree->tx, tree->ty, tree->facing, false);
+    map_clear_object(map, tree);
     object_array_remove_swap(objects, tree_idx);
   }
   start_wood_walk_to_barn(figure, map, objects, flood_field_state, game_state);
 }
 
 static bool advance_sow_cursor(SowRoute *route, int *out_tx, int *out_ty) {
-  int row_axis_min = route->row_along_tx ? route->min_tx : route->min_ty;
-  int row_axis_max = route->row_along_tx ? route->max_tx : route->max_ty;
-  int next_cursor = route->cursor + route->sweep_dir;
+  int row_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_tx : route->route_bounds.min_ty;
+  int row_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_tx : route->route_bounds.max_ty;
+  int next_cursor = route->row_sweep_state.cursor + route->row_sweep_state.sweep_dir;
   if (next_cursor < row_axis_min || next_cursor > row_axis_max) {
-    int step_axis_min = route->row_along_tx ? route->min_ty : route->min_tx;
-    int step_axis_max = route->row_along_tx ? route->max_ty : route->max_tx;
-    int next_row = route->row + route->step_dir;
+    int step_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_ty : route->route_bounds.min_tx;
+    int step_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_ty : route->route_bounds.max_tx;
+    int next_row = route->row_sweep_state.row + route->row_sweep_state.step_dir;
     if (next_row < step_axis_min || next_row > step_axis_max) return false;
-    route->row = next_row;
-    route->sweep_dir = -route->sweep_dir;
+    route->row_sweep_state.row = next_row;
+    route->row_sweep_state.sweep_dir = -route->row_sweep_state.sweep_dir;
   } else {
-    route->cursor = next_cursor;
+    route->row_sweep_state.cursor = next_cursor;
   }
-  *out_tx = route->row_along_tx ? route->cursor : route->row;
-  *out_ty = route->row_along_tx ? route->row : route->cursor;
+  *out_tx = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : route->row_sweep_state.row;
+  *out_ty = route->route_bounds.row_along_tx ? route->row_sweep_state.row : route->row_sweep_state.cursor;
   return true;
 }
 
@@ -582,7 +695,8 @@ static void advance_sow_route(Object *figure, Map *map, FloodFieldArray *flood_f
   int next_tx, next_ty;
   if (!advance_sow_cursor(route, &next_tx, &next_ty)) {
     Mansus *mansus = find_own_mansus(game_state, figure->id);
-    Field *sown_field = mansus ? find_mansus_field_by_bounds(mansus, route->min_tx, route->max_tx, route->min_ty, route->max_ty) : NULL;
+    Field *sown_field = mansus ? find_mansus_field_by_bounds(mansus,
+                                                             route->route_bounds.min_tx, route->route_bounds.max_tx, route->route_bounds.min_ty, route->route_bounds.max_ty) : NULL;
     if (sown_field) sown_field->field_condition = SOWED;
     release_field_lock(game_state, figure->id);
     route->phase = SOW_PHASE_NONE;
@@ -590,32 +704,32 @@ static void advance_sow_route(Object *figure, Map *map, FloodFieldArray *flood_f
     return;
   }
   figure->figure.action = FIGURE_ACTION_SOW;
-  figure_walk_to_direct(figure, map, flood_field_state, next_tx, next_ty);
+  figure_walk_to_direct(figure, map, flood_field_state, (Position){next_tx, next_ty});
 }
 
 static void dig_route_field_tile(const DigRoute *route, int *out_tx, int *out_ty) {
-  *out_tx = route->row_along_tx ? route->cursor : route->row;
-  *out_ty = route->row_along_tx ? route->row : route->cursor;
+  *out_tx = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : route->row_sweep_state.row;
+  *out_ty = route->route_bounds.row_along_tx ? route->row_sweep_state.row : route->row_sweep_state.cursor;
 }
 
 static bool advance_dig_cursor(DigRoute *route, int *out_tx, int *out_ty) {
-  int row_axis_min = route->row_along_tx ? route->min_tx : route->min_ty;
-  int row_axis_max = route->row_along_tx ? route->max_tx : route->max_ty;
-  int next_cursor = route->cursor + route->sweep_dir;
+  int row_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_tx : route->route_bounds.min_ty;
+  int row_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_tx : route->route_bounds.max_ty;
+  int next_cursor = route->row_sweep_state.cursor + route->row_sweep_state.sweep_dir;
 
   if (next_cursor < row_axis_min || next_cursor > row_axis_max) {
-    int step_axis_min = route->row_along_tx ? route->min_ty : route->min_tx;
-    int step_axis_max = route->row_along_tx ? route->max_ty : route->max_tx;
-    int next_row = route->row + route->step_dir;
+    int step_axis_min = route->route_bounds.row_along_tx ? route->route_bounds.min_ty : route->route_bounds.min_tx;
+    int step_axis_max = route->route_bounds.row_along_tx ? route->route_bounds.max_ty : route->route_bounds.max_tx;
+    int next_row = route->row_sweep_state.row + route->row_sweep_state.step_dir;
     if (next_row < step_axis_min || next_row > step_axis_max) return false;
-    route->row = next_row;
-    route->sweep_dir = -route->sweep_dir;
+    route->row_sweep_state.row = next_row;
+    route->row_sweep_state.sweep_dir = -route->row_sweep_state.sweep_dir;
   } else {
-    route->cursor = next_cursor;
+    route->row_sweep_state.cursor = next_cursor;
   }
 
-  *out_tx = route->row_along_tx ? route->cursor : route->row;
-  *out_ty = route->row_along_tx ? route->row : route->cursor;
+  *out_tx = route->route_bounds.row_along_tx ? route->row_sweep_state.cursor : route->row_sweep_state.row;
+  *out_ty = route->route_bounds.row_along_tx ? route->row_sweep_state.row : route->row_sweep_state.cursor;
   return true;
 }
 
@@ -670,7 +784,8 @@ static void update_dig_digging(Object *figure, Map *map, ObjectArray *objects, F
   int next_tx, next_ty;
   if (!advance_dig_cursor(route, &next_tx, &next_ty)) {
     Mansus *mansus = find_own_mansus(game_state, figure->id);
-    Field *dug_field = mansus ? find_mansus_field_by_bounds(mansus, route->min_tx, route->max_tx, route->min_ty, route->max_ty) : NULL;
+    Field *dug_field = mansus ? find_mansus_field_by_bounds(mansus,
+                                                            route->route_bounds.min_tx, route->route_bounds.max_tx, route->route_bounds.min_ty, route->route_bounds.max_ty) : NULL;
     if (dug_field) dug_field->field_condition = PLOWED;
     release_field_lock(game_state, figure->id);
     route->phase = DIG_PHASE_NONE;
@@ -680,7 +795,7 @@ static void update_dig_digging(Object *figure, Map *map, ObjectArray *objects, F
 
   route->phase = DIG_PHASE_WALKING;
   figure->figure.action = FIGURE_ACTION_WALK;
-  figure_walk_to_direct(figure, map, flood_field_state, next_tx, next_ty);
+  figure_walk_to_direct(figure, map, flood_field_state, (Position){next_tx, next_ty});
 }
 
 static void stop_walking(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state, int flood_field_index,
@@ -776,8 +891,8 @@ static int choose_next_tile(Map *map, FloodField *field, int current_tile, int t
 static const int PACING_ESCAPE_STREAK = 5;
 
 static bool figure_is_pacing(Object *figure) {
-  int delta_x = figure->tx - figure->figure.target_tx;
-  int delta_y = figure->ty - figure->figure.target_ty;
+  int delta_x = figure->tx - figure->figure.target.x;
+  int delta_y = figure->ty - figure->figure.target.y;
   int distance_to_target = delta_x * delta_x + delta_y * delta_y;
 
   if (figure->figure.best_distance_to_target < 0 ||
@@ -811,8 +926,8 @@ static int choose_and_reserve_next_tile(Object *figure, Map *map, FloodField *fi
     next_tile = choose_next_tile(map, field, current_tile, target_tile, true, figure->figure.prev_tile);
   }
   if (next_tile == current_tile) return -1;
-  node_to_xy(next_tile, map->w, &figure->figure.step_tx, &figure->figure.step_ty);
-  Tile *step_tile = map_tile(map, figure->figure.step_tx, figure->figure.step_ty);
+  node_to_xy(next_tile, map->w, &figure->figure.step.x, &figure->figure.step.y);
+  Tile *step_tile = map_tile(map, figure->figure.step.x, figure->figure.step.y);
   if (step_tile) step_tile->figure_occupied = 1;
   return next_tile;
 }
@@ -823,7 +938,7 @@ static void update_flow_field_figure(Object *figure, Map *map, ObjectArray *obje
   int flood_field_index = figure->figure.flood_field_idx;
   FloodField *field = &flood_field_state->data[flood_field_index];
   int current_tile = node_index(figure->tx, figure->ty, map->w);
-  int target_tile = node_index(figure->figure.target_tx, figure->figure.target_ty, map->w);
+  int target_tile = node_index(figure->figure.target.x, figure->figure.target.y, map->w);
 
   if (current_tile == target_tile) {
     stop_walking(figure, map, objects, flood_field_state, flood_field_index, texture_state, game_state);
@@ -835,7 +950,7 @@ static void update_flow_field_figure(Object *figure, Map *map, ObjectArray *obje
     next_tile = choose_and_reserve_next_tile(figure, map, field, current_tile, target_tile);
     if (next_tile < 0) return;
   } else {
-    next_tile = node_index(figure->figure.step_tx, figure->figure.step_ty, map->w);
+    next_tile = node_index(figure->figure.step.x, figure->figure.step.y, map->w);
   }
 
   if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK) {
@@ -845,15 +960,14 @@ static void update_flow_field_figure(Object *figure, Map *map, ObjectArray *obje
   float speed = figure->figure.speed;
   if (figure->figure.action == FIGURE_ACTION_SOW) speed *= figure_sow_speed_factor;
 
-  int segment_start_x, segment_start_y, segment_end_x, segment_end_y;
-  bool arrived = advance_along_segment(figure, map, current_tile, next_tile, speed,
-                                       &segment_start_x, &segment_start_y, &segment_end_x, &segment_end_y);
+  Position segment_start, segment_end;
+  bool arrived = advance_along_segment(figure, map, current_tile, next_tile, speed, &segment_start, &segment_end);
   if (arrived && node_index(figure->tx, figure->ty, map->w) == target_tile) {
     stop_walking(figure, map, objects, flood_field_state, flood_field_index, texture_state, game_state);
     return;
   }
 
-  apply_walk_sprite(figure, texture_state, segment_start_x, segment_start_y, segment_end_x, segment_end_y);
+  apply_walk_sprite(figure, texture_state, segment_start, segment_end);
 }
 
 static void stop_direct_walk(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
@@ -879,7 +993,7 @@ static void stop_direct_walk(Object *figure, Map *map, ObjectArray *objects, Flo
 static void update_direct_walk_figure(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
                                       const Texture_State *texture_state, GameState *game_state) {
   int current_tile = node_index(figure->tx, figure->ty, map->w);
-  int target_tile = node_index(figure->figure.target_tx, figure->figure.target_ty, map->w);
+  int target_tile = node_index(figure->figure.target.x, figure->figure.target.y, map->w);
 
   if (current_tile == target_tile) {
     stop_direct_walk(figure, map, objects, flood_field_state, texture_state, game_state);
@@ -890,14 +1004,14 @@ static void update_direct_walk_figure(Object *figure, Map *map, ObjectArray *obj
   if (figure->figure.progress <= 0.0f) {
     next_tile = step_toward_own_target_directly(map, current_tile, target_tile);
     if (next_tile == current_tile) {
-      figure_walk_to(figure, map, flood_field_state, figure->figure.target_tx, figure->figure.target_ty);
+      figure_walk_to(figure, map, flood_field_state, figure->figure.target);
       return;
     }
-    node_to_xy(next_tile, map->w, &figure->figure.step_tx, &figure->figure.step_ty);
-    Tile *step_tile = map_tile(map, figure->figure.step_tx, figure->figure.step_ty);
+    node_to_xy(next_tile, map->w, &figure->figure.step.x, &figure->figure.step.y);
+    Tile *step_tile = map_tile(map, figure->figure.step.x, figure->figure.step.y);
     if (step_tile) step_tile->figure_occupied = 1;
   } else {
-    next_tile = node_index(figure->figure.step_tx, figure->figure.step_ty, map->w);
+    next_tile = node_index(figure->figure.step.x, figure->figure.step.y, map->w);
   }
 
   if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK) {
@@ -905,49 +1019,53 @@ static void update_direct_walk_figure(Object *figure, Map *map, ObjectArray *obj
   }
   figure->figure.action_timer = 0.0f;
 
-  int segment_start_x, segment_start_y, segment_end_x, segment_end_y;
-  bool arrived = advance_along_segment(figure, map, current_tile, next_tile, figure->figure.speed,
-                                       &segment_start_x, &segment_start_y, &segment_end_x, &segment_end_y);
+  Position segment_start, segment_end;
+  bool arrived = advance_along_segment(figure, map, current_tile, next_tile, figure->figure.speed, &segment_start, &segment_end);
   if (arrived && node_index(figure->tx, figure->ty, map->w) == target_tile) {
     stop_direct_walk(figure, map, objects, flood_field_state, texture_state, game_state);
     return;
   }
 
-  apply_walk_sprite(figure, texture_state, segment_start_x, segment_start_y, segment_end_x, segment_end_y);
+  apply_walk_sprite(figure, texture_state, segment_start, segment_end);
 }
 
-static void update_tree_chopping(Object *figure, ObjectArray *objects) {
+static void update_tree_chopping(Object *figure, Map *map, ObjectArray *objects) {
   const float TREE_CHOP_SECONDS_TO_FELL = 30.0f;
-  const float TREE_CHOP_SECONDS_TO_BEAM = 30.0f;
   if (figure->figure.action != FIGURE_ACTION_CHOP) return;
 
-  int tree_idx = find_object_at_tile(objects, figure->figure.gather_tx, figure->figure.gather_ty);
+  int tree_idx = find_object_at_tile(objects, figure->figure.gather.x, figure->figure.gather.y);
   if (tree_idx < 0 || objects->data[tree_idx].kind != OBJECT_TREE) return;
   Object *tree = &objects->data[tree_idx];
 
-  if (tree->tree.state == TREE_STATE_BEAM) {
+  // Wood collecting is disabled for now - a felled tree just stays felled.
+  if (tree->tree.state == TREE_STATE_FELLED) {
     figure->figure.action = FIGURE_ACTION_STAND;
     return;
   }
 
   tree->tree.chop_seconds += game_delta_time();
+  if (tree->tree.chop_seconds < TREE_CHOP_SECONDS_TO_FELL) return;
+  tree->tree.state = TREE_STATE_FELLED;
+  tree->facing = FIGURE_DIR_RIGHT; // south-east - fixed fall direction
+  tree->tree.chop_seconds = 0.0f;
+  set_tree_reach_tiles_occupied(map, objects, tree->tx, tree->ty, tree->facing, true);
 
-  if (tree->tree.state == TREE_STATE_STANDING) {
-    if (tree->tree.chop_seconds < TREE_CHOP_SECONDS_TO_FELL) return;
-    tree->tree.state = TREE_STATE_FELLED;
-    tree->facing = (FigureDirection)GetRandomValue(0, FIGURE_DIR_COUNT - 1);
-    tree->tree.chop_seconds = 0.0f;
-    return;
-  }
+  // Defensive: the base tile should already be occupied since the tree was
+  // first scattered, but if a figure somehow ended up on it anyway, move it
+  // off rather than let it get drawn under the stump.
+  int base_figure_idx = find_figure_at_tile(objects, tree->tx, tree->ty);
+  if (base_figure_idx >= 0) relocate_figure_off_tile(&objects->data[base_figure_idx], map);
 
-  if (tree->tree.chop_seconds < TREE_CHOP_SECONDS_TO_BEAM) return;
-  tree->tree.state = TREE_STATE_BEAM;
-
-  figure->figure.wood_route.phase = WOOD_PHASE_PICKING;
-  figure->figure.wood_route.pick_timer = 0.0f;
-  figure->figure.wood_route.tree_id = tree->id;
-  figure->figure.action = FIGURE_ACTION_CARRY_PICK;
-  figure->figure.action_timer = 0.0f;
+  // One of the ring positions choppers stand at while working on a tree
+  // (the one directly opposite the fall direction, e.g. tx-1,ty for a
+  // south-east fall) is close enough to the stump that a stationary
+  // figure's sprite there visually overlaps under it once felled - even
+  // though that tile isn't part of the trunk's own footprint. Confirmed
+  // visually 2026-08-02 (chopper slot 4 in the ring scan order).
+  int behind_tx = tree->tx - TREE_TRUNK_DIR_TX[tree->facing];
+  int behind_ty = tree->ty - TREE_TRUNK_DIR_TY[tree->facing];
+  int behind_figure_idx = find_figure_at_tile(objects, behind_tx, behind_ty);
+  if (behind_figure_idx >= 0) relocate_figure_off_tile(&objects->data[behind_figure_idx], map);
 }
 
 void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture_state, FloodFieldArray *flood_field_state,
@@ -972,7 +1090,7 @@ void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture
       } else if (figure->figure.wood_route.phase == WOOD_PHASE_PICKING) {
         update_wood_picking(figure, map, objects, flood_field_state, game_state);
       }
-      update_tree_chopping(figure, objects);
+      update_tree_chopping(figure, map, objects);
       if (figure->figure.flood_field_idx < 0 && !figure->figure.direct_walking) {
         handle_idle(figure, texture_state);
       }

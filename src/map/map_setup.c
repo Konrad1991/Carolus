@@ -24,6 +24,35 @@ static void carve_pond(Map *map, int cx, int cy, float base_radius) {
   }
 }
 
+static void carve_swamp(Map *map, int cx, int cy, float base_radius) {
+  int margin = (int)base_radius + 6;
+  for (int y = cy - margin; y <= cy + margin; y++) {
+    for (int x = cx - margin; x <= cx + margin; x++) {
+      Tile *t = map_tile(map, x, y);
+      if (!t || t->type != TILE_GRASS) continue;
+      float dx = (float)(x - cx);
+      float dy = (float)(y - cy);
+      float dist = sqrtf(dx * dx + dy * dy);
+      float angle = atan2f(dy, dx);
+      float wobble = sinf(angle * 3.0f + 0.6f) * 2.5f + sinf(angle * 5.0f + 1.7f) * 1.2f;
+      if (dist <= base_radius + wobble) {
+        t->type = TILE_SWAMP;
+      }
+    }
+  }
+}
+
+void scatter_swamps(Map *map, int n_patches) {
+  const float min_radius = 5.0f;
+  const float max_radius = 10.0f;
+  for (int i = 0; i < n_patches; i++) {
+    int cx = GetRandomValue(0, map->w - 1);
+    int cy = GetRandomValue(0, map->h - 1);
+    float radius = min_radius + GetRandomValue(0, 100) / 100.0f * (max_radius - min_radius);
+    carve_swamp(map, cx, cy, radius);
+  }
+}
+
 static void carve_stream(Map *map, int base_x, float amplitude, float frequency, float phase) {
   for (int y = 0; y < map->h; y++) {
     int cx = base_x + (int)(amplitude * sinf((float)y * frequency + phase));
@@ -75,6 +104,25 @@ void build_tree_wall(ObjectArray *objects, Map *map, const Texture_State *textur
   }
 }
 
+void scatter_rocks(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_rocks = (map->w * map->h) / 200;
+  for (int i = 0; i < n_rocks; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, ROCK_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->rock[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_ROCK,
+    });
+    map_place_object(map, tx, ty, 1, 1, false);
+  }
+}
+
 void scatter_grass_tufts(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
   int n_tufts = (map->w * map->h) / 12;
   for (int i = 0; i < n_tufts; i++) {
@@ -113,7 +161,7 @@ void spawn_debug_figures(ObjectArray *objects, Map *map, const Texture_State *te
       .kind = OBJECT_FIGURE,
       .facing = dir,
       .figure = {
-        .gather_tx = fx, .gather_ty = fy,
+        .gather = {fx, fy},
         .species = i % 2,
         .flood_field_idx = -1,
         .prev_tile = -1,
@@ -141,8 +189,11 @@ void define_nature(ObjectArray* objects, Map *map, TileState tile_state, const T
   float phase = -(float)pond_cy * freq;
   carve_stream(map, pond_cx, amplitude, freq, phase);
 
+  scatter_swamps(map, 4);
+
   scatter_trees(objects, map, texture_state);
   scatter_grass_tufts(objects, map, texture_state);
+  scatter_rocks(objects, map, texture_state);
 
   const int gap_center_x = map->w / 2;
   const int wall_offset = map->w;

@@ -30,7 +30,7 @@ int compare_object_order(const void *a, const void *b) {
   // the tests above proved --> a and b have the same combined depth position and the same z
 
   if (oa->is_puddle != ob->is_puddle) return (int)ob->is_puddle - (int)oa->is_puddle;
-  const bool same_tile = oa->tile_x == ob->tile_x && oa->tile_y == ob->tile_y;
+  const bool same_tile = oa->tile.x == ob->tile.x && oa->tile.y == ob->tile.y;
   if (same_tile && oa->is_tall_decor != ob->is_tall_decor) return (int)ob->is_tall_decor - (int)oa->is_tall_decor;
   if (oa->is_ground_decor != ob->is_ground_decor) return (int)oa->is_ground_decor - (int)ob->is_ground_decor;
   if (oa->is_figure != ob->is_figure) return (int)oa->is_figure - (int)ob->is_figure;
@@ -145,6 +145,14 @@ static void update_scales(Scales* scales, const TileState tile_state, const Text
       (float)tile_state.TILE_W / (float)texture_state->water_flat[i].width,
       (float)tile_state.TILE_H / (float)texture_state->water_flat[i].height
     );
+    scales->swamp_flat_scale[i] = fmaxf(
+      (float)tile_state.TILE_W / (float)texture_state->swamp_flat[i].width,
+      (float)tile_state.TILE_H / (float)texture_state->swamp_flat[i].height
+    );
+    scales->swamp_edge_scale[i] = fmaxf(
+      (float)tile_state.TILE_W / (float)texture_state->swamp_edge[i].width,
+      (float)tile_state.TILE_H / (float)texture_state->swamp_edge[i].height
+    );
   }
   for (int i = 0; i < FIGURE_MAX_FRAMES; i++) {
     scales->water_flow_scale[i] = (float)tile_state.TILE_H / (float)texture_state->water_flow[i].height;
@@ -161,7 +169,7 @@ static void draw_grass(const Tile* t,
   Color GRASS_COL = {78, 120, 44, 255};
   switch (season_blend.base) {
     case WINTER: {
-      GRASS_COL = WHITE;
+      GRASS_COL = DARKGREEN;
       break;
     }
     case SPRING: {}
@@ -270,6 +278,19 @@ static void draw_dirt(const Tile* t, TileState tile_state, Texture_State* textur
   draw_diamond_outline(tile_state, sx, sy, BLACK);
 }
 
+static void draw_swamp(const Tile* t, TileState tile_state, Texture_State* texture_state, Map* map,
+                       const int sx, const int sy, const int x, const int y, float water_level_z) {
+  const Color SWAMP_COL = {66, 74, 48, 255};
+  draw_diamond(tile_state, sx, sy, SWAMP_COL);
+  int variant = tile_variant(x, y, TILE_VARIANT_COUNT);
+  if (tile_is_edge(map, t, x, y, water_level_z)) {
+    draw_relief_tile(sx, sy, &texture_state->swamp_edge[variant], scales.swamp_edge_scale[variant]);
+  } else {
+    draw_ground_tile(tile_state, sx, sy, &texture_state->swamp_flat[variant], scales.swamp_flat_scale[variant]);
+    draw_diamond_outline(tile_state, sx, sy, BLACK);
+  }
+}
+
 static void draw_tiles(TileState tile_state, Texture_State* texture_state,
                        SeasonBlend season_blend, Map* map,
                        const ObjectArray *objects, const int highlight_index,
@@ -312,6 +333,10 @@ static void draw_tiles(TileState tile_state, Texture_State* texture_state,
           draw_dirt(t, tile_state, texture_state, sx, sy, x, y);
           break;
         }
+        case TILE_SWAMP: {
+          draw_swamp(t, tile_state, texture_state, map, sx, sy, x, y, water_level_z);
+          break;
+        }
       }
     }
   }
@@ -319,8 +344,8 @@ static void draw_tiles(TileState tile_state, Texture_State* texture_state,
 
 static bool object_in_bounds(const Object *o, int min_tx, int max_tx, int min_ty, int max_ty) {
   bool use_draw_pos = (o->kind == OBJECT_FIGURE && o->id != 0) || o->kind == OBJECT_WHEAT_TUFT;
-  float fx = use_draw_pos ? o->draw_x : (float)o->tx;
-  float fy = use_draw_pos ? o->draw_y : (float)o->ty;
+  float fx = use_draw_pos ? o->draw.x : (float)o->tx;
+  float fy = use_draw_pos ? o->draw.y : (float)o->ty;
   int front_x = (int)floorf(fx);
   int front_y = (int)floorf(fy);
   int back_x = front_x - o->footprint_w + 1;
@@ -332,32 +357,55 @@ static bool object_in_bounds(const Object *o, int min_tx, int max_tx, int min_ty
 // past a 1x1 footprint - the sort position needs to follow that reach, or a
 // figure standing where the trunk visually extends to sorts as if it were
 // behind the stump instead of behind the part of the trunk actually drawn there.
-static const float TREE_TRUNK_SORT_REACH = 1.0f;
-static const float TREE_TRUNK_DIR_DX[FIGURE_DIR_COUNT] = {0, 1, 1, 1, 0, -1, -1, -1};
-static const float TREE_TRUNK_DIR_DY[FIGURE_DIR_COUNT] = {1, 1, 0, -1, -1, -1, 0, 1};
+// Trunk art spans 3 tiles total (base + 2), confirmed visually 2026-08-02.
+static const float TREE_TRUNK_SORT_REACH = 2.0f;
 
 static ObjectOrder create_ObjectOrder_from_object(const Object *o, int idx) {
   bool use_draw_pos = (o->kind == OBJECT_FIGURE && o->id != 0) || o->kind == OBJECT_WHEAT_TUFT;
-  float x = use_draw_pos ? o->draw_x : (float)o->tx;
-  float y = use_draw_pos ? o->draw_y : (float)o->ty;
+  float x = use_draw_pos ? o->draw.x : (float)o->tx;
+  float y = use_draw_pos ? o->draw.y : (float)o->ty;
+  float base_point = x + y;
+  float frontmost_point = base_point;
+  // A felled trunk spans from its base tile to the tip in the fall direction,
+  // not a single point - give it real spread in the sort instead of shifting
+  // the whole object to the tip, or figures near the stump end sort as if the
+  // entire trunk (reported far ahead of them) were in front of them too.
   if (o->kind == OBJECT_TREE && o->tree.state != TREE_STATE_STANDING) {
-    x += TREE_TRUNK_DIR_DX[o->facing] * TREE_TRUNK_SORT_REACH;
-    y += TREE_TRUNK_DIR_DY[o->facing] * TREE_TRUNK_SORT_REACH;
+    frontmost_point += ((float)TREE_TRUNK_DIR_TX[o->facing] + (float)TREE_TRUNK_DIR_TY[o->facing]) * TREE_TRUNK_SORT_REACH;
   }
-  float frontmost_point = x + y;
   return (ObjectOrder){
     .idx = idx,
     .frontmost_point = frontmost_point,
-    .backmost_point = frontmost_point - (o->footprint_w - 1) - (o->footprint_h - 1),
+    .backmost_point = base_point - (o->footprint_w - 1) - (o->footprint_h - 1),
     .z = o->z,
-    .tile_x = o->tx,
-    .tile_y = o->ty,
+    .tile = {o->tx, o->ty},
     .sprite_slice_from = 0.0f,
     .sprite_slice_to = 1.0f,
     .is_figure = o->kind == OBJECT_FIGURE,
     .is_ground_decor = o->kind == OBJECT_GRASS_TUFT,
     .is_tall_decor = o->kind == OBJECT_WHEAT_TUFT,
     .is_puddle = o->kind == OBJECT_PUDDLE,
+  };
+}
+
+// A felled trunk's sprite spans TREE_TRUNK_TILE_SPAN tiles but is one texture -
+// sliced left-to-right into one segment per tile so each segment can be sorted
+// at its own tile's depth instead of the whole sprite sorting as one object
+// (which gets the depth order wrong wherever a neighboring figure's sprite is
+// tall enough to visually overlap into a tile the trunk merely reaches into).
+static ObjectOrder create_tree_segment_order(const Object *o, int idx, int seg, float slice_from, float slice_to) {
+  int seg_tx = o->tx + TREE_TRUNK_DIR_TX[o->facing] * seg;
+  int seg_ty = o->ty + TREE_TRUNK_DIR_TY[o->facing] * seg;
+  float depth = (float)(seg_tx + seg_ty);
+  return (ObjectOrder){
+    .idx = idx,
+    .frontmost_point = depth,
+    .backmost_point = depth,
+    .z = o->z,
+    .tile = {seg_tx, seg_ty},
+    .sprite_slice_from = slice_from,
+    .sprite_slice_to = slice_to,
+    .slice_horizontal = true,
   };
 }
 
@@ -374,7 +422,10 @@ void draw_scene(const ObjectArray *objects,
   draw_tiles(tile_state, texture_state, season_blend, map, objects, highlight_index, min_tx, max_tx, min_ty, max_ty, water_level_z, soil_overlay_state);
 
   int n_objects = objects->count;
-  int total = n_objects + (preview_active ? 1 : 0);
+  // Grass/wheat tufts push 2 ObjectOrder entries each, felled south-east trees
+  // push TREE_TRUNK_TILE_SPAN - sizing for the worst case per object so the
+  // buffer can't overflow regardless of how many of which kind are on screen.
+  int total = n_objects * TREE_TRUNK_TILE_SPAN + (preview_active ? 1 : 0);
   if (total > 0) {
     ObjectOrder *order = malloc(total * sizeof(ObjectOrder));
     int visible_count = 0;
@@ -396,6 +447,15 @@ void draw_scene(const ObjectArray *objects,
         tip.sprite_slice_from = 0.0f;
         tip.sprite_slice_to = sprite_slice_to;
         order[visible_count++] = tip;
+        continue;
+      }
+
+      if (k == OBJECT_TREE && objects->data[i].tree.state != TREE_STATE_STANDING && objects->data[i].facing == FIGURE_DIR_RIGHT) {
+        for (int seg = 0; seg < TREE_TRUNK_TILE_SPAN; seg++) {
+          float slice_from = (float)seg / TREE_TRUNK_TILE_SPAN;
+          float slice_to = (float)(seg + 1) / TREE_TRUNK_TILE_SPAN;
+          order[visible_count++] = create_tree_segment_order(&objects->data[i], i, seg, slice_from, slice_to);
+        }
         continue;
       }
 
@@ -441,7 +501,11 @@ void draw_scene(const ObjectArray *objects,
       } else if (o->kind == OBJECT_BOUNDARY_STONE && o->boundary_stone.is_field_boundary) {
         tint = RED;
       }
-      draw_object_slice(tile_state, o, tint, order[i].sprite_slice_from, order[i].sprite_slice_to);
+      if (order[i].slice_horizontal) {
+        draw_object_slice_x(tile_state, o, tint, order[i].sprite_slice_from, order[i].sprite_slice_to);
+      } else {
+        draw_object_slice(tile_state, o, tint, order[i].sprite_slice_from, order[i].sprite_slice_to);
+      }
     }
     free(order);
   }

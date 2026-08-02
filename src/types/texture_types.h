@@ -60,12 +60,15 @@ typedef enum {
 // TextureState
 // ----------------------
 #define TILE_VARIANT_COUNT 16
+#define ROCK_VARIANT_COUNT 7
 
 typedef struct {
   Texture2D grass_flat[SEASON_COUNT][TILE_VARIANT_COUNT];
   Texture2D grass_edge[SEASON_COUNT][TILE_VARIANT_COUNT];
   Texture2D road_flat[TILE_VARIANT_COUNT];
   Texture2D road_high[TILE_VARIANT_COUNT];
+  Texture2D swamp_flat[TILE_VARIANT_COUNT];
+  Texture2D swamp_edge[TILE_VARIANT_COUNT];
   Texture2D water_flat[TILE_VARIANT_COUNT];
   Texture2D water_flow[FIGURE_MAX_FRAMES];
   Texture2D earth[TILE_VARIANT_COUNT];
@@ -81,7 +84,6 @@ typedef struct {
   SpriteAsset oak[SEASON_COUNT][BUILDING_DIR_COUNT];
   SpriteAsset oak_sway[SEASON_COUNT][FIGURE_DIR_COUNT][FIGURE_MAX_FRAMES];
   SpriteAsset oak_trunk[FIGURE_DIR_COUNT];
-  SpriteAsset oak_beam[FIGURE_DIR_COUNT];
 
   SpriteAsset grass_tuft_idle[SEASON_COUNT][FIGURE_DIR_COUNT];
   SpriteAsset grass_tuft_sway[SEASON_COUNT][FIGURE_DIR_COUNT][FIGURE_MAX_FRAMES];
@@ -91,6 +93,7 @@ typedef struct {
   SpriteAsset cloud_drift[FIGURE_DIR_COUNT][FIGURE_MAX_FRAMES];
   SpriteAsset puddle[FIGURE_DIR_COUNT];
   SpriteAsset boundary_stone;
+  SpriteAsset rock[ROCK_VARIANT_COUNT];
   SpriteAsset wheat_sheaf;
   SpriteAsset cursor;
   SpriteAsset axe_cursor;
