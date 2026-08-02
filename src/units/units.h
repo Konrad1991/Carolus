@@ -16,5 +16,8 @@ void start_sow_route(Object *fig, Map *map, FloodFieldArray *flood_field_state,
 void command_selected_units(const Selection *sel, Map *map, TileState tile_state, ObjectArray *objects, FloodFieldArray* flood_field_state, GameState *game_state, bool any_hovered);
 Field *find_field_at(GameState *game_state, int tx, int ty, int *out_mansus_idx);
 void release_field_lock(GameState *game_state, unsigned int figure_id);
+void release_tree_claim(ObjectArray *objects, unsigned int figure_id);
+void assign_clear_forest_job(const Selection *sel, ObjectArray *objects, Map *map,
+                             FloodFieldArray *flood_field_state, GameState *game_state, RouteBounds bounds);
 
 #endif

@@ -15,6 +15,7 @@
 #include "drawing/update_scenery_sway.h"
 #include "drawing/build_object.h"
 #include "drawing/build_road.h"
+#include "drawing/build_clear_forest.h"
 #include "flood_fill/flood_fill.h"
 #include "sidebar/sidebar.h"
 #include "selection/selection.h"
@@ -40,6 +41,7 @@ static TileState tile_state;
 static SidebarState sidebar_state;
 static FieldAssignState field_assign_state = {0};
 static RoadDragState road_drag_state = {0};
+static ClearForestDragState clear_forest_drag_state = {0};
 static Selection selection = {.mansus_idx = -1, .field_mansus_idx = -1, .field_idx = -1};
 static WeatherScenarioState weather_scenario_state = {.current = WEATHER_SCENARIO_PERFECT_YEAR, .last_seen_month = -1};
 static CloudState cloud_state = {0};
@@ -84,6 +86,7 @@ static void draw_all(const ObjectArray *objects, int delete_target, const BuildP
 static bool compute_any_hovered(void) {
   bool any_hovered = false;
   for (int m = BUILD_LIVING_HOUSE; m < MODE_COUNT; m++) any_hovered = any_hovered || mode_state.hovered[m];
+  for (int c = 0; c < BUILD_CATEGORY_COUNT; c++) any_hovered = any_hovered || sidebar_state.category_hovered[c];
   for (int w = 0; w < WEATHER_COUNT; w++) any_hovered = any_hovered || weather_state.hovered[w];
   any_hovered = any_hovered || weather_state.wind_lever_hovered;
   for (int o = 0; o < SOIL_OVERLAY_COUNT; o++) any_hovered = any_hovered || soil_overlay_state.hovered[o];
@@ -96,6 +99,7 @@ static bool compute_any_hovered(void) {
     (float)sidebar_state.SIDEBAR_WIDTH, (float)sidebar_state.SIDEBAR_HEIGHT
   };
   any_hovered = any_hovered || CheckCollisionPointRec(mouse, sidebar_rect);
+  any_hovered = any_hovered || CheckCollisionPointRec(mouse, sidebar_flyout_rect(&sidebar_state));
   any_hovered = any_hovered || CheckCollisionPointRec(mouse, topbar_panel_rect());
   any_hovered = any_hovered || CheckCollisionPointRec(mouse, soil_overlay_panel_rect());
   return any_hovered;
@@ -111,7 +115,7 @@ int main(void) {
   const float flood_field_refresh_interval = 0.75f;
   float flood_field_refresh_timer = 0.0f;
   init_texture_state(&texture_state, "../Images");
-  init_sidebar_state(&sidebar_state, &texture_state, 120, 10, 30, 80, 80);
+  init_sidebar_state(&sidebar_state, &texture_state, 120, 30, 16, 75, 75);
   init_weather_state(&weather_state, season_state);
   init_clouds(&cloud_state);
 
@@ -143,6 +147,7 @@ int main(void) {
 
     update_field_action(&field_assign_state, tile_state, &mode_state, &map, &game_state, any_hovered, &objects, &texture_state);
     update_road_drag(&road_drag_state, tile_state, &mode_state, &map, &objects, &texture_state, any_hovered);
+    update_clear_forest_drag(&clear_forest_drag_state, tile_state, &mode_state, &map, &flood_field_state, &objects, &game_state, &selection, any_hovered);
     update_selection(&selection, tile_state, mode_state, &objects, &game_state, any_hovered);
     update_crowd_density(&map, &objects);
 
@@ -160,6 +165,7 @@ int main(void) {
     update_clouds(&cloud_state, &weather_state);
     update_puddles(&objects, &map, &texture_state, &weather_state);
     update_md(&mode_state);
+    update_sidebar_category(&sidebar_state, &mode_state);
     update_weather_scenario(&weather_state, &weather_scenario_state, &map, &game_state, season_state.month);
     update_weather_state(&weather_state, season_state);
     update_soil_overlay_state(&soil_overlay_state);

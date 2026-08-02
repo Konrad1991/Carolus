@@ -1,12 +1,6 @@
 #include "drawing/drawing_helper.h"
 #include <math.h>
 
-// Single source of truth for which way a felled tree's trunk extends,
-// per facing direction - used both for draw-order sort reach (drawing.c)
-// and for marking the tiles the trunk visually covers as occupied (update_figure.c).
-const int TREE_TRUNK_DIR_TX[FIGURE_DIR_COUNT] = {0, 1, 1, 1, 0, -1, -1, -1};
-const int TREE_TRUNK_DIR_TY[FIGURE_DIR_COUNT] = {1, 1, 0, -1, -1, -1, 0, 1};
-
 int tile_variant(int tx, int ty, int num_variants) {
   unsigned int h = (unsigned int)(tx * 73856093) ^ (unsigned int)(ty * 19349663);
   h ^= h >> 13;

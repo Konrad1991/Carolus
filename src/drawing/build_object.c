@@ -246,6 +246,14 @@ BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, co
     sprite.anchor = (Vector2){0.5f, 1.0f};
     footprint_w = rotated_90 ? MANSUS_FOOTPRINT_H : MANSUS_FOOTPRINT_W;
     footprint_h = rotated_90 ? MANSUS_FOOTPRINT_W : MANSUS_FOOTPRINT_H;
+  } else if (mode_state.current == BUILD_HIVE) {
+    sprite = texture_state->hive;
+    footprint_w = 1;
+    footprint_h = 1;
+  } else if (mode_state.current == BUILD_WELL) {
+    sprite = texture_state->well[tile_variant(tx, ty, FIGURE_DIR_COUNT)];
+    footprint_w = 1;
+    footprint_h = 1;
   } else {
     return preview;
   }
@@ -257,6 +265,8 @@ BuildPreview build_object_preview(TileState tile_state, ModeState mode_state, co
   else if (mode_state.current == BUILD_MANSUS) kind = OBJECT_MANSUS;
   else if (mode_state.current == BUILD_OAK) kind = OBJECT_TREE;
   else if (mode_state.current == BUILD_GRASS) kind = OBJECT_GRASS_TUFT;
+  else if (mode_state.current == BUILD_HIVE) kind = OBJECT_HIVE;
+  else if (mode_state.current == BUILD_WELL) kind = OBJECT_WELL;
 
   FigureSpecies species = FIGURE_SPECIES_FARMER1;
   if (mode_state.current == BUILD_FARMER2) species = FIGURE_SPECIES_FARMER2;
@@ -360,7 +370,7 @@ void build_object(ObjectArray *objects, const BuildPreview *preview,
   current_obj.id = allocate_object_id();
   object_array_push(objects, current_obj);
 
-  if (mode_state.current == BUILD_OAK) {
+  if (mode_state.current == BUILD_OAK || mode_state.current == BUILD_HIVE || mode_state.current == BUILD_WELL) {
     map_place_object(map, tx, ty, current_obj.footprint_w, current_obj.footprint_h, false);
   }
   else if (mode_state.current == BUILD_LIVING_HOUSE || mode_state.current == BUILD_BARN) {

@@ -12,6 +12,8 @@ static const int FIGURE_ACTION_FRAME_COUNT[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_CARRY_STAND] = 1,
   [FIGURE_ACTION_CARRY_PICK]  = 9,
   [FIGURE_ACTION_CARRY_WALK]  = 8,
+  [FIGURE_ACTION_CARRY_TRUNK_STAND] = 1,
+  [FIGURE_ACTION_CARRY_TRUNK_WALK]  = 8,
 };
 
 int figure_action_frame_count(FigureAction action) {
@@ -29,6 +31,8 @@ static const char *FIGURE_ACTION_FOLDER[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_CARRY_STAND] = "wearing_basket",
   [FIGURE_ACTION_CARRY_PICK]  = "wearing_basket",
   [FIGURE_ACTION_CARRY_WALK]  = "wearing_basket",
+  [FIGURE_ACTION_CARRY_TRUNK_STAND] = "trunk_carrying",
+  [FIGURE_ACTION_CARRY_TRUNK_WALK]  = "trunk_carrying",
 };
 
 // animation subfolder name, only used when FIGURE_ACTION_FRAME_COUNT > 1;
@@ -42,6 +46,7 @@ static const char *FIGURE_ACTION_ANIM_SUBDIR[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_MOW]    = "mowing",
   [FIGURE_ACTION_CARRY_PICK] = "pick",
   [FIGURE_ACTION_CARRY_WALK] = "walking",
+  [FIGURE_ACTION_CARRY_TRUNK_WALK] = "walking",
 };
 
 static const float FIGURE_ACTION_SCALE_CORRECTION[FIGURE_ACTION_COUNT] = {
@@ -55,6 +60,8 @@ static const float FIGURE_ACTION_SCALE_CORRECTION[FIGURE_ACTION_COUNT] = {
   [FIGURE_ACTION_CARRY_STAND] = 0.9f, // 29x60 px
   [FIGURE_ACTION_CARRY_PICK]  = 0.9f, // 29x60 px
   [FIGURE_ACTION_CARRY_WALK]  = 0.9f, // 29x60 px
+  [FIGURE_ACTION_CARRY_TRUNK_STAND] = 0.9f, // 49x66 px
+  [FIGURE_ACTION_CARRY_TRUNK_WALK]  = 0.9f, // 49x66 px
 };
 
 static const char *FIGURE_DIR_COMPASS[FIGURE_DIR_COUNT] = {
@@ -192,6 +199,9 @@ static const Vector2 PUDDLE_ANCHOR = {0.5f, 1.0f};
 static const float PUDDLE_SCALE = 1.0f;
 
 static const Vector2 OAK_TRUNK_ANCHOR = {0.5f, 1.0f};
+// AoE-style: a felled trunk fits on the single tile it stands on. The art
+// itself (Images/oak_trunk/rotations/) is now trimmed to trunk-only size,
+// not the old multi-tile-spanning sprite - starting guess, tune visually against TILE_W.
 static const float OAK_TRUNK_SCALE = 1.0f;
 
 static void load_grass_tuft(Texture_State *texture_state, const char *grass_tuft_dir, int season) {
@@ -280,6 +290,18 @@ static void load_boundary_stone(Texture_State *texture_state, const char *bounda
   SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
 }
 
+static void load_sprite_set(SpriteAsset *dest, int count, const char *const *filenames, const char *dir, Vector2 anchor, float scale) {
+  char path[512];
+  for (int i = 0; i < count; i++) {
+    snprintf(path, sizeof(path), "%s%s", dir, filenames[i]);
+    SpriteAsset *sprite = &dest[i];
+    sprite->tex = LoadTexture(path);
+    sprite->anchor = anchor;
+    sprite->scale = scale;
+    SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+  }
+}
+
 static const char *ROCK_FILENAMES[ROCK_VARIANT_COUNT] = {
   "limestone1.png", "limestone2.png", "limestone3.png", "limestone4.png",
   "sandstone1.png", "sandstone2.png", "sandstone3.png",
@@ -287,14 +309,61 @@ static const char *ROCK_FILENAMES[ROCK_VARIANT_COUNT] = {
 static const Vector2 ROCK_ANCHOR = {0.5f, 1.0f};
 static const float ROCK_SCALE = 0.4f; // starting guess, tune visually against TILE_W
 
-static void load_rocks(Texture_State *texture_state, const char *rocks_dir) {
+static const char *MOSS_FERNS_FILENAMES[MOSS_FERNS_VARIANT_COUNT] = {
+  "moss_ferns1.png", "moss_ferns2.png", "moss_ferns3.png", "moss_ferns4.png",
+};
+static const Vector2 MOSS_FERNS_ANCHOR = {0.5f, 1.0f};
+static const float MOSS_FERNS_SCALE = 0.5f; // starting guess, tune visually against TILE_W
+
+static const char *MUSHROOMS_FILENAMES[MUSHROOMS_VARIANT_COUNT] = {
+  "chanterelle1.png", "chanterelle2.png",
+};
+static const Vector2 MUSHROOMS_ANCHOR = {0.5f, 1.0f};
+static const float MUSHROOMS_SCALE = 0.5f; // starting guess, tune visually against TILE_W
+
+static const char *STRAWBERRY_FILENAMES[STRAWBERRY_VARIANT_COUNT] = {
+  "strawberry1.png", "strawberry2.png", "strawberry3.png", "strawberry4.png",
+};
+static const Vector2 STRAWBERRY_ANCHOR = {0.5f, 1.0f};
+static const float STRAWBERRY_SCALE = 0.5f; // starting guess, tune visually against TILE_W
+
+static const char *CAIRN_FILENAMES[CAIRN_VARIANT_COUNT] = {
+  "cairn1.png", "cairn2.png",
+};
+static const Vector2 CAIRN_ANCHOR = {0.5f, 1.0f};
+static const float CAIRN_SCALE = 0.5f; // starting guess, tune visually against TILE_W
+
+static const char *WOODY_DEBRIS_FILENAMES[WOODY_DEBRIS_VARIANT_COUNT] = {
+  "debris1.png", "debris2.png", "debris3.png", "debris4.png",
+};
+static const Vector2 WOODY_DEBRIS_ANCHOR = {0.5f, 1.0f};
+static const float WOODY_DEBRIS_SCALE = 0.4f; // starting guess, tune visually against TILE_W
+
+static const Vector2 HIVE_ANCHOR = {0.5f, 1.0f};
+static const float HIVE_SCALE = 0.6f; // starting guess, tune visually against TILE_W
+
+static void load_hive(Texture_State *texture_state, const char *hive_dir) {
   char path[512];
-  for (int i = 0; i < ROCK_VARIANT_COUNT; i++) {
-    snprintf(path, sizeof(path), "%s%s", rocks_dir, ROCK_FILENAMES[i]);
-    SpriteAsset *sprite = &texture_state->rock[i];
+  snprintf(path, sizeof(path), "%srotations/unknown.png", hive_dir);
+  SpriteAsset *sprite = &texture_state->hive;
+  sprite->tex = LoadTexture(path);
+  sprite->anchor = HIVE_ANCHOR;
+  sprite->scale = HIVE_SCALE;
+  SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
+}
+
+static const Vector2 WELL_ANCHOR = {0.5f, 1.0f};
+static const float WELL_SCALE = 1.0f; // starting guess, tune visually against TILE_W
+
+static void load_well(Texture_State *texture_state, const char *well_dir) {
+  char path[512];
+  for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
+    const char *dir_name = FIGURE_DIR_COMPASS[d];
+    snprintf(path, sizeof(path), "%srotations/%s.png", well_dir, dir_name);
+    SpriteAsset *sprite = &texture_state->well[d];
     sprite->tex = LoadTexture(path);
-    sprite->anchor = ROCK_ANCHOR;
-    sprite->scale = ROCK_SCALE;
+    sprite->anchor = WELL_ANCHOR;
+    sprite->scale = WELL_SCALE;
     SetTextureFilter(sprite->tex, TEXTURE_FILTER_POINT);
   }
 }
@@ -492,6 +561,13 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   IMG_PATH(puddle_dir, "puddle/");
   IMG_PATH(boundary_stone_dir, "boundary_stone/");
   IMG_PATH(rocks_dir, "rocks/");
+  IMG_PATH(moss_ferns_dir, "moss_and_ferns/");
+  IMG_PATH(mushrooms_dir, "mushrooms_chanterelle/");
+  IMG_PATH(strawberry_dir, "wild_strawberry/");
+  IMG_PATH(cairns_dir, "cairns/");
+  IMG_PATH(woody_debris_dir, "coarse_woody_debris/");
+  IMG_PATH(hive_dir, "hive/");
+  IMG_PATH(well_dir, "well/");
   IMG_PATH(wheat_sheaf_dir, "wheat_sheaf/");
   IMG_PATH(signs_dir, "signs/");
 
@@ -547,7 +623,14 @@ void init_texture_state(Texture_State* texture_state, const char* images_dir) {
   load_puddle(texture_state, puddle_dir);
   load_oak_trunk(texture_state, oak_trunk_dir);
   load_boundary_stone(texture_state, boundary_stone_dir);
-  load_rocks(texture_state, rocks_dir);
+  load_sprite_set(texture_state->rock, ROCK_VARIANT_COUNT, ROCK_FILENAMES, rocks_dir, ROCK_ANCHOR, ROCK_SCALE);
+  load_sprite_set(texture_state->moss_ferns, MOSS_FERNS_VARIANT_COUNT, MOSS_FERNS_FILENAMES, moss_ferns_dir, MOSS_FERNS_ANCHOR, MOSS_FERNS_SCALE);
+  load_sprite_set(texture_state->mushrooms, MUSHROOMS_VARIANT_COUNT, MUSHROOMS_FILENAMES, mushrooms_dir, MUSHROOMS_ANCHOR, MUSHROOMS_SCALE);
+  load_sprite_set(texture_state->strawberry, STRAWBERRY_VARIANT_COUNT, STRAWBERRY_FILENAMES, strawberry_dir, STRAWBERRY_ANCHOR, STRAWBERRY_SCALE);
+  load_sprite_set(texture_state->cairn, CAIRN_VARIANT_COUNT, CAIRN_FILENAMES, cairns_dir, CAIRN_ANCHOR, CAIRN_SCALE);
+  load_sprite_set(texture_state->woody_debris, WOODY_DEBRIS_VARIANT_COUNT, WOODY_DEBRIS_FILENAMES, woody_debris_dir, WOODY_DEBRIS_ANCHOR, WOODY_DEBRIS_SCALE);
+  load_hive(texture_state, hive_dir);
+  load_well(texture_state, well_dir);
   load_wheat_sheaf(texture_state, wheat_sheaf_dir);
   load_signs(texture_state, signs_dir);
 
@@ -600,6 +683,25 @@ void free_texture_state(Texture_State* texture_state) {
   UnloadTexture(texture_state->boundary_stone.tex);
   for (int i = 0; i < ROCK_VARIANT_COUNT; i++) {
     UnloadTexture(texture_state->rock[i].tex);
+  }
+  for (int i = 0; i < MOSS_FERNS_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->moss_ferns[i].tex);
+  }
+  for (int i = 0; i < MUSHROOMS_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->mushrooms[i].tex);
+  }
+  for (int i = 0; i < STRAWBERRY_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->strawberry[i].tex);
+  }
+  for (int i = 0; i < CAIRN_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->cairn[i].tex);
+  }
+  for (int i = 0; i < WOODY_DEBRIS_VARIANT_COUNT; i++) {
+    UnloadTexture(texture_state->woody_debris[i].tex);
+  }
+  UnloadTexture(texture_state->hive.tex);
+  for (int d = 0; d < FIGURE_DIR_COUNT; d++) {
+    UnloadTexture(texture_state->well[d].tex);
   }
   UnloadTexture(texture_state->wheat_sheaf.tex);
   UnloadTexture(texture_state->cursor.tex);

@@ -75,6 +75,7 @@ void scatter_trees(ObjectArray *objects, Map *map, const Texture_State *texture_
 
     int variant = tile_variant(tx, ty, BUILDING_DIR_COUNT);
     object_array_push(objects, (Object){
+      .id = allocate_object_id(),
       .sprite = texture_state->oak[0][variant],
       .tx = tx, .ty = ty, .z = 0,
       .footprint_w = 1, .footprint_h = 1,
@@ -94,6 +95,7 @@ void build_tree_wall(ObjectArray *objects, Map *map, const Texture_State *textur
 
       int variant = tile_variant(tx, ty, BUILDING_DIR_COUNT);
       object_array_push(objects, (Object){
+        .id = allocate_object_id(),
         .sprite = texture_state->oak[0][variant],
         .tx = tx, .ty = ty, .z = 0,
         .footprint_w = 1, .footprint_h = 1,
@@ -140,6 +142,98 @@ void scatter_grass_tufts(ObjectArray *objects, Map *map, const Texture_State *te
     };
     tuft.facing = dir;
     object_array_push(objects, tuft);
+  }
+}
+
+void scatter_moss_ferns(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_moss_ferns = (map->w * map->h) / 20;
+  for (int i = 0; i < n_moss_ferns; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, MOSS_FERNS_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->moss_ferns[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_MOSS_FERNS,
+    });
+  }
+}
+
+void scatter_mushrooms(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_mushrooms = (map->w * map->h) / 400;
+  for (int i = 0; i < n_mushrooms; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, MUSHROOMS_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->mushrooms[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_MUSHROOMS,
+    });
+  }
+}
+
+void scatter_strawberry(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_strawberry = (map->w * map->h) / 300;
+  for (int i = 0; i < n_strawberry; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, STRAWBERRY_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->strawberry[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_STRAWBERRY,
+    });
+  }
+}
+
+void scatter_cairns(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_cairns = (map->w * map->h) / 600;
+  for (int i = 0; i < n_cairns; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, CAIRN_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->cairn[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_CAIRN,
+    });
+    map_place_object(map, tx, ty, 1, 1, false);
+  }
+}
+
+void scatter_woody_debris(ObjectArray *objects, Map *map, const Texture_State *texture_state) {
+  int n_woody_debris = (map->w * map->h) / 150;
+  for (int i = 0; i < n_woody_debris; i++) {
+    int tx = GetRandomValue(0, map->w - 1);
+    int ty = GetRandomValue(0, map->h - 1);
+    Tile *t = map_tile(map, tx, ty);
+    if (!t || t->type != TILE_GRASS || t->occupied) continue;
+
+    int variant = tile_variant(tx, ty, WOODY_DEBRIS_VARIANT_COUNT);
+    object_array_push(objects, (Object){
+      .sprite = texture_state->woody_debris[variant],
+      .tx = tx, .ty = ty, .z = 0,
+      .footprint_w = 1, .footprint_h = 1,
+      .kind = OBJECT_WOODY_DEBRIS,
+    });
+    map_place_object(map, tx, ty, 1, 1, false);
   }
 }
 
@@ -194,6 +288,11 @@ void define_nature(ObjectArray* objects, Map *map, TileState tile_state, const T
   scatter_trees(objects, map, texture_state);
   scatter_grass_tufts(objects, map, texture_state);
   scatter_rocks(objects, map, texture_state);
+  scatter_moss_ferns(objects, map, texture_state);
+  scatter_mushrooms(objects, map, texture_state);
+  scatter_strawberry(objects, map, texture_state);
+  scatter_cairns(objects, map, texture_state);
+  scatter_woody_debris(objects, map, texture_state);
 
   const int gap_center_x = map->w / 2;
   const int wall_offset = map->w;

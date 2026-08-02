@@ -40,6 +40,8 @@ typedef enum {
   FIGURE_ACTION_CARRY_STAND,
   FIGURE_ACTION_CARRY_PICK,
   FIGURE_ACTION_CARRY_WALK,
+  FIGURE_ACTION_CARRY_TRUNK_STAND,
+  FIGURE_ACTION_CARRY_TRUNK_WALK,
   FIGURE_ACTION_COUNT
 } FigureAction;
 
@@ -61,6 +63,11 @@ typedef enum {
 // ----------------------
 #define TILE_VARIANT_COUNT 16
 #define ROCK_VARIANT_COUNT 7
+#define MOSS_FERNS_VARIANT_COUNT 4
+#define MUSHROOMS_VARIANT_COUNT 2
+#define STRAWBERRY_VARIANT_COUNT 4
+#define CAIRN_VARIANT_COUNT 2
+#define WOODY_DEBRIS_VARIANT_COUNT 4
 
 typedef struct {
   Texture2D grass_flat[SEASON_COUNT][TILE_VARIANT_COUNT];
@@ -94,6 +101,13 @@ typedef struct {
   SpriteAsset puddle[FIGURE_DIR_COUNT];
   SpriteAsset boundary_stone;
   SpriteAsset rock[ROCK_VARIANT_COUNT];
+  SpriteAsset moss_ferns[MOSS_FERNS_VARIANT_COUNT];
+  SpriteAsset mushrooms[MUSHROOMS_VARIANT_COUNT];
+  SpriteAsset strawberry[STRAWBERRY_VARIANT_COUNT];
+  SpriteAsset cairn[CAIRN_VARIANT_COUNT];
+  SpriteAsset woody_debris[WOODY_DEBRIS_VARIANT_COUNT];
+  SpriteAsset hive;
+  SpriteAsset well[FIGURE_DIR_COUNT];
   SpriteAsset wheat_sheaf;
   SpriteAsset cursor;
   SpriteAsset axe_cursor;

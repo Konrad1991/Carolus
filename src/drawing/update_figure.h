@@ -12,6 +12,9 @@ void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture
 void figure_release_reservation(Map *map, Object *figure);
 
 void figure_walk_to(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position position);
+void figure_walk_to_direct(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position target);
+
+int find_nearest_clear_forest_tree(const ObjectArray *objects, const RouteBounds *bounds);
 
 void harvest_route_field_tile(const HarvestRoute *route, Position* position);
 void harvest_route_stand_tile(const HarvestRoute *route, Position* position);

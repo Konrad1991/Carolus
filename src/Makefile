@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -std=c11 -Wall -Wextra -I. -MMD -MP
+CFLAGS = -std=c11 -Wall -Wextra -O2 -I. -MMD -MP
 LDLIBS = -lraylib -lX11 -lm
 
 SRCS = main.c \
@@ -10,6 +10,7 @@ SRCS = main.c \
        drawing/update_tile_state.c drawing/update_figure.c drawing/update_scenery_sway.c \
 			 drawing/build_object.c \
        drawing/build_road.c \
+       drawing/build_clear_forest.c \
        textures/textures.c sidebar/sidebar.c selection/selection.c units/units.c \
        containers/arrays.c weather/weather.c weather/weather_scenario.c weather/clouds.c weather/puddles.c \
        soil/soil.c soil/soil_overlay.c \

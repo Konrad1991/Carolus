@@ -4,11 +4,6 @@
 #include "raylib.h"
 #include "types.h"
 
-extern const int TREE_TRUNK_DIR_TX[FIGURE_DIR_COUNT];
-extern const int TREE_TRUNK_DIR_TY[FIGURE_DIR_COUNT];
-// Tiles a felled trunk spans (base tile + reach), only south-east calibrated so far.
-#define TREE_TRUNK_TILE_SPAN 3
-
 int tile_variant(int tx, int ty, int num_variants);
 Vector2 screen_direction_for_facing(FigureDirection dir);
 

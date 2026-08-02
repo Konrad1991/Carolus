@@ -28,6 +28,11 @@ typedef struct {
 } RoadDragState;
 
 typedef struct {
+  bool dragging;
+  Vector2 drag_start; // screen space, like Selection.drag_start - not tile coords
+} ClearForestDragState;
+
+typedef struct {
   int* cost;
   int* cost_no_density;
   int len;

@@ -23,7 +23,7 @@ static void react_to_scrolling(TileState* tile_state) {
   if (IsKeyPressed(47) || IsKeyDown(47)) zoom = -5; // 47 is - on german keyboard
   if (zoom != 0) {
     Vector2 m = GetMousePosition();
-    int new_tw = (int)Clamp((float)(tile_state->TILE_W + zoom), 32.0f, 144.0f);
+    int new_tw = (int)Clamp((float)(tile_state->TILE_W + zoom), 48.0f, 144.0f);
     if (new_tw == tile_state->TILE_W) return;
     int new_th = new_tw / 2;
 

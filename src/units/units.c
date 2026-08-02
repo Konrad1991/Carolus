@@ -7,7 +7,20 @@
 #include "raylib.h"
 #include <stdlib.h>
 
-static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodFieldArray* flood_field_state, GameState *game_state) {
+// A tree claimed for chopping (src/types/object_types.h: TreeAttributes.claimed_by_figure_id)
+// needs to be freed up again whenever the figure that claimed it gets reassigned
+// elsewhere, or that tree would stay permanently unchoppable by anyone else.
+void release_tree_claim(ObjectArray *objects, unsigned int figure_id) {
+  if (figure_id == 0) return;
+  for (int i = 0; i < objects->count; i++) {
+    Object *o = &objects->data[i];
+    if (o->kind == OBJECT_TREE && o->tree.claimed_by_figure_id == figure_id) {
+      o->tree.claimed_by_figure_id = 0;
+    }
+  }
+}
+
+static void set_figure_action(Object *fig, ObjectArray *objects, FigureAction action, Map *map, FloodFieldArray* flood_field_state, GameState *game_state) {
   if (fig->figure.flood_field_idx >= 0) {
     figure_release_reservation(map, fig);
     flood_field_array_release(flood_field_state, fig->figure.flood_field_idx);
@@ -30,13 +43,15 @@ static void set_figure_action(Object *fig, FigureAction action, Map *map, FloodF
   fig->figure.sow_route.phase = SOW_PHASE_NONE;
   fig->figure.dig_route.phase = DIG_PHASE_NONE;
   fig->figure.wood_route.phase = WOOD_PHASE_NONE;
+  fig->figure.clear_forest_route.active = false;
   release_field_lock(game_state, fig->id);
+  release_tree_claim(objects, fig->id);
 }
 
 static void selected_figures_do(const Selection *sel, ObjectArray *objects, FigureAction action, Map *map, FloodFieldArray* flood_field_state, GameState *game_state) {
   for (int i = 0; i < objects->count; i++) {
     if (objects->data[i].kind == OBJECT_FIGURE && selection_contains(sel, objects->data[i].id)) {
-      set_figure_action(&objects->data[i], action, map, flood_field_state, game_state);
+      set_figure_action(&objects->data[i], objects, action, map, flood_field_state, game_state);
     }
   }
 }
@@ -242,7 +257,7 @@ static int calc_n_walkers(const Selection* sel, ObjectArray* objects,
     bool adjacent = is_tree_target &&
       abs(objects->data[i].tx - tx) <= 1 && abs(objects->data[i].ty - ty) <= 1;
     if (adjacent) {
-      set_figure_action(&objects->data[i], FIGURE_ACTION_CHOP, map, flood_field_state, game_state);
+      set_figure_action(&objects->data[i], objects, FIGURE_ACTION_CHOP, map, flood_field_state, game_state);
       objects->data[i].figure.gather = (Position){tx, ty};
     } else {
       n_walkers++;
@@ -275,8 +290,10 @@ static void update_figure_attributes(ObjectArray* objects, GameState *game_state
     objects->data[i].figure.sow_route.phase = SOW_PHASE_NONE;
     objects->data[i].figure.dig_route.phase = DIG_PHASE_NONE;
     objects->data[i].figure.wood_route.phase = WOOD_PHASE_NONE;
+    objects->data[i].figure.clear_forest_route.active = false;
   }
   release_field_lock(game_state, objects->data[i].id);
+  release_tree_claim(objects, objects->data[i].id);
 }
 
 void command_selected_units(const Selection* sel, Map* map, TileState tile_state, ObjectArray *objects, FloodFieldArray* flood_field_state, GameState *game_state, bool any_hovered) {
@@ -361,4 +378,92 @@ void command_selected_units(const Selection* sel, Map* map, TileState tile_state
   free(target_used);
   free(target_x);
   free(target_y);
+}
+
+// Hands the selected farmers (not oxen - they pull plows, not axes) a shared
+// clear-forest job. Once a worker has actually reached the rectangle, going
+// from one felled tree to the next nearby one is cheap local stepping (see
+// update_clear_forest_route in update_figure.c). But the *first* walk in is
+// often a long one, and every figure independently paying for its own
+// full-map flood-fill for that approach is what caused the frame stutter -
+// a 400x400 map flood-fill measured ~50-95ms each depending on build flags,
+// so e.g. 8 workers starting a job at once could block for the better part
+// of a second. Instead, claim each worker's first tree up front here and
+// route everyone still outside the rectangle through ONE shared flood-fill,
+// the same multi-source trick command_selected_units already uses to route
+// several figures to one target without recomputing the whole map per figure.
+void assign_clear_forest_job(const Selection *sel, ObjectArray *objects, Map *map,
+                             FloodFieldArray *flood_field_state, GameState *game_state, RouteBounds bounds) {
+  int *worker_idx = malloc(objects->count * sizeof(int));
+  int n_workers = 0;
+
+  for (int i = 0; i < objects->count; i++) {
+    Object *fig = &objects->data[i];
+    if (fig->kind != OBJECT_FIGURE || !selection_contains(sel, fig->id)) continue;
+    if (!is_farmer_species(fig->figure.species)) continue;
+
+    set_figure_action(fig, objects, FIGURE_ACTION_STAND, map, flood_field_state, game_state);
+    fig->figure.clear_forest_route.route_bounds = bounds;
+    fig->figure.clear_forest_route.active = true;
+    worker_idx[n_workers++] = i;
+  }
+
+  int *approach_tx = malloc(n_workers * sizeof(int));
+  int *approach_ty = malloc(n_workers * sizeof(int));
+  int *approach_worker = malloc(n_workers * sizeof(int));
+  int n_approaching = 0;
+
+  for (int w = 0; w < n_workers; w++) {
+    Object *fig = &objects->data[worker_idx[w]];
+
+    int tree_idx = find_nearest_clear_forest_tree(objects, &bounds);
+    if (tree_idx < 0) break; // fewer standing trees than workers - the rest just stay idle, next frame's per-figure check turns their job off
+    Object *tree = &objects->data[tree_idx];
+
+    int free_tx, free_ty;
+    if (!map_free_tiles_near(map, tree->tx, tree->ty, 1, &free_tx, &free_ty)) continue;
+
+    tree->tree.claimed_by_figure_id = fig->id;
+    fig->figure.pending_action = FIGURE_ACTION_CHOP;
+    fig->figure.gather = (Position){tree->tx, tree->ty};
+
+    bool inside_bounds = fig->tx >= bounds.min_tx && fig->tx <= bounds.max_tx &&
+      fig->ty >= bounds.min_ty && fig->ty <= bounds.max_ty;
+    if (inside_bounds) {
+      figure_walk_to_direct(fig, map, flood_field_state, (Position){free_tx, free_ty});
+    } else {
+      approach_tx[n_approaching] = free_tx;
+      approach_ty[n_approaching] = free_ty;
+      approach_worker[n_approaching] = worker_idx[w];
+      n_approaching++;
+    }
+  }
+
+  if (n_approaching > 0) {
+    int *approach_nodes = malloc(n_approaching * sizeof(int));
+    for (int a = 0; a < n_approaching; a++) {
+      approach_nodes[a] = node_index(approach_tx[a], approach_ty[a], map->w);
+    }
+    FloodField field = flood_fill(map, approach_nodes, n_approaching, true);
+    field.n_figures = n_approaching;
+    field.active = true;
+    int field_idx = flood_field_array_push(flood_field_state, field);
+    free(approach_nodes);
+
+    for (int a = 0; a < n_approaching; a++) {
+      Object *fig = &objects->data[approach_worker[a]];
+      fig->figure.flood_field_idx = field_idx;
+      fig->figure.direct_walking = false;
+      fig->figure.target = (Position){approach_tx[a], approach_ty[a]};
+      fig->figure.prev_tile = -1;
+      fig->figure.best_distance_to_target = -1;
+      fig->figure.pacing_streak = 0;
+      fig->figure.speed = FIGURE_SPEED_TILES_PER_SECOND;
+    }
+  }
+
+  free(worker_idx);
+  free(approach_tx);
+  free(approach_ty);
+  free(approach_worker);
 }

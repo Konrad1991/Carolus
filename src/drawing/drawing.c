@@ -353,29 +353,14 @@ static bool object_in_bounds(const Object *o, int min_tx, int max_tx, int min_ty
   return back_x <= max_tx && front_x >= min_tx && back_y <= max_ty && front_y >= min_ty;
 }
 
-// A felled trunk's sprite reaches out from its tile in the direction it fell,
-// past a 1x1 footprint - the sort position needs to follow that reach, or a
-// figure standing where the trunk visually extends to sorts as if it were
-// behind the stump instead of behind the part of the trunk actually drawn there.
-// Trunk art spans 3 tiles total (base + 2), confirmed visually 2026-08-02.
-static const float TREE_TRUNK_SORT_REACH = 2.0f;
-
 static ObjectOrder create_ObjectOrder_from_object(const Object *o, int idx) {
   bool use_draw_pos = (o->kind == OBJECT_FIGURE && o->id != 0) || o->kind == OBJECT_WHEAT_TUFT;
   float x = use_draw_pos ? o->draw.x : (float)o->tx;
   float y = use_draw_pos ? o->draw.y : (float)o->ty;
   float base_point = x + y;
-  float frontmost_point = base_point;
-  // A felled trunk spans from its base tile to the tip in the fall direction,
-  // not a single point - give it real spread in the sort instead of shifting
-  // the whole object to the tip, or figures near the stump end sort as if the
-  // entire trunk (reported far ahead of them) were in front of them too.
-  if (o->kind == OBJECT_TREE && o->tree.state != TREE_STATE_STANDING) {
-    frontmost_point += ((float)TREE_TRUNK_DIR_TX[o->facing] + (float)TREE_TRUNK_DIR_TY[o->facing]) * TREE_TRUNK_SORT_REACH;
-  }
   return (ObjectOrder){
     .idx = idx,
-    .frontmost_point = frontmost_point,
+    .frontmost_point = base_point,
     .backmost_point = base_point - (o->footprint_w - 1) - (o->footprint_h - 1),
     .z = o->z,
     .tile = {o->tx, o->ty},
@@ -385,27 +370,6 @@ static ObjectOrder create_ObjectOrder_from_object(const Object *o, int idx) {
     .is_ground_decor = o->kind == OBJECT_GRASS_TUFT,
     .is_tall_decor = o->kind == OBJECT_WHEAT_TUFT,
     .is_puddle = o->kind == OBJECT_PUDDLE,
-  };
-}
-
-// A felled trunk's sprite spans TREE_TRUNK_TILE_SPAN tiles but is one texture -
-// sliced left-to-right into one segment per tile so each segment can be sorted
-// at its own tile's depth instead of the whole sprite sorting as one object
-// (which gets the depth order wrong wherever a neighboring figure's sprite is
-// tall enough to visually overlap into a tile the trunk merely reaches into).
-static ObjectOrder create_tree_segment_order(const Object *o, int idx, int seg, float slice_from, float slice_to) {
-  int seg_tx = o->tx + TREE_TRUNK_DIR_TX[o->facing] * seg;
-  int seg_ty = o->ty + TREE_TRUNK_DIR_TY[o->facing] * seg;
-  float depth = (float)(seg_tx + seg_ty);
-  return (ObjectOrder){
-    .idx = idx,
-    .frontmost_point = depth,
-    .backmost_point = depth,
-    .z = o->z,
-    .tile = {seg_tx, seg_ty},
-    .sprite_slice_from = slice_from,
-    .sprite_slice_to = slice_to,
-    .slice_horizontal = true,
   };
 }
 
@@ -422,10 +386,10 @@ void draw_scene(const ObjectArray *objects,
   draw_tiles(tile_state, texture_state, season_blend, map, objects, highlight_index, min_tx, max_tx, min_ty, max_ty, water_level_z, soil_overlay_state);
 
   int n_objects = objects->count;
-  // Grass/wheat tufts push 2 ObjectOrder entries each, felled south-east trees
-  // push TREE_TRUNK_TILE_SPAN - sizing for the worst case per object so the
-  // buffer can't overflow regardless of how many of which kind are on screen.
-  int total = n_objects * TREE_TRUNK_TILE_SPAN + (preview_active ? 1 : 0);
+  // Grass/wheat tufts push 2 ObjectOrder entries each - sizing for that worst
+  // case per object so the buffer can't overflow regardless of how many of
+  // which kind are on screen.
+  int total = n_objects * 2 + (preview_active ? 1 : 0);
   if (total > 0) {
     ObjectOrder *order = malloc(total * sizeof(ObjectOrder));
     int visible_count = 0;
@@ -447,15 +411,6 @@ void draw_scene(const ObjectArray *objects,
         tip.sprite_slice_from = 0.0f;
         tip.sprite_slice_to = sprite_slice_to;
         order[visible_count++] = tip;
-        continue;
-      }
-
-      if (k == OBJECT_TREE && objects->data[i].tree.state != TREE_STATE_STANDING && objects->data[i].facing == FIGURE_DIR_RIGHT) {
-        for (int seg = 0; seg < TREE_TRUNK_TILE_SPAN; seg++) {
-          float slice_from = (float)seg / TREE_TRUNK_TILE_SPAN;
-          float slice_to = (float)(seg + 1) / TREE_TRUNK_TILE_SPAN;
-          order[visible_count++] = create_tree_segment_order(&objects->data[i], i, seg, slice_from, slice_to);
-        }
         continue;
       }
 
@@ -665,7 +620,7 @@ void draw_mansus_goods_panel(const GameState *game_state, const Selection *selec
   int y = (int)r.y + padding;
   draw_goods_row(x, y, font_size, "Grains", g->grains); y += line_height;
   draw_goods_row(x, y, font_size, "Straw", g->straw); y += line_height;
-  draw_goods_row(x, y, font_size, "Wood", g->wood); y += line_height;
+  draw_goods_row(x, y, font_size, "Timber", g->timber); y += line_height;
   draw_goods_row(x, y, font_size, "Clay", g->clay); y += line_height;
   draw_goods_row(x, y, font_size, "Limestone", g->limestone); y += line_height;
   draw_goods_row(x, y, font_size, "Slaked lime", g->slaked_lime); y += line_height;

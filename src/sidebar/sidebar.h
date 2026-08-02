@@ -12,5 +12,7 @@ void init_sidebar_state(SidebarState* sidebar_state, const Texture_State *textur
 void update_sidebar_state(SidebarState* sidebar_state);
 bool draw_icon(SidebarState sidebar_state, Texture2D tex, float si_h, int x, int y);
 void draw_sidebar(SidebarState* sidebar_state, const Texture_State *texture_state, bool hovered[MODE_COUNT]);
+void update_sidebar_category(SidebarState *sidebar_state, ModeState *mode_state);
+Rectangle sidebar_flyout_rect(const SidebarState *sidebar_state);
 
 #endif

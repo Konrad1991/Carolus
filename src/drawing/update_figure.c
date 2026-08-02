@@ -171,7 +171,7 @@ void figure_walk_to(Object *figure, Map *map, FloodFieldArray *flood_field_state
 
 // For short local hops within an already-known-clear area (harvest/plow route steps):
 // steps straight toward the target one tile at a time instead of flooding the whole map.
-static void figure_walk_to_direct(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position target) {
+void figure_walk_to_direct(Object *figure, Map *map, FloodFieldArray *flood_field_state, Position target) {
   if (figure->figure.flood_field_idx >= 0) {
     figure_release_reservation(map, figure);
     flood_field_array_release(flood_field_state, figure->figure.flood_field_idx);
@@ -441,7 +441,7 @@ static void start_wood_walk_to_barn(Object *figure, Map *map, ObjectArray *objec
     return;
   }
   route->phase = WOOD_PHASE_TO_BARN;
-  figure->figure.action = FIGURE_ACTION_CARRY_WALK;
+  figure->figure.action = FIGURE_ACTION_CARRY_TRUNK_WALK;
   Position approach = (Position){approach_tx, approach_ty};
   figure_walk_to(figure, map, flood_field_state, approach);
 }
@@ -450,7 +450,7 @@ static void advance_wood_route(Object *figure, GameState *game_state) {
   if (figure->figure.wood_route.phase != WOOD_PHASE_TO_BARN) return;
 
   Mansus *mansus = find_own_mansus(game_state, figure->id);
-  if (mansus) mansus->goods.wood += 1;
+  if (mansus) mansus->goods.timber += 1;
 
   figure->figure.wood_route.phase = WOOD_PHASE_NONE;
   figure->figure.action = FIGURE_ACTION_STAND;
@@ -539,19 +539,6 @@ static void update_harvest_picking(Object *figure, Map *map, ObjectArray *object
   }
 }
 
-// Trunk art spans TREE_TRUNK_TILE_SPAN tiles total (base + reach), only
-// south-east (the current fixed fall direction) calibrated so far - extend
-// per-direction once more rotations are checked.
-#define TREE_TRUNK_REACH_TILE_COUNT (TREE_TRUNK_TILE_SPAN - 1)
-
-static int tree_trunk_reach_tiles(FigureDirection facing, int tx, int ty, Position out[TREE_TRUNK_REACH_TILE_COUNT]) {
-  if (facing != FIGURE_DIR_RIGHT) return 0;
-  for (int step = 1; step <= TREE_TRUNK_REACH_TILE_COUNT; step++) {
-    out[step - 1] = (Position){tx + TREE_TRUNK_DIR_TX[facing] * step, ty + TREE_TRUNK_DIR_TY[facing] * step};
-  }
-  return TREE_TRUNK_REACH_TILE_COUNT;
-}
-
 static int find_figure_at_tile(const ObjectArray *objects, int tx, int ty) {
   for (int i = 0; i < objects->count; i++) {
     if (objects->data[i].kind == OBJECT_FIGURE && objects->data[i].tx == tx && objects->data[i].ty == ty) {
@@ -604,51 +591,6 @@ static void relocate_figure_off_tile(Object *figure, Map *map) {
   if (new_tile) new_tile->figure_occupied = 1;
 }
 
-static int find_object_of_kind_at_tile(const ObjectArray *objects, ObjectKind kind, int tx, int ty) {
-  for (int i = 0; i < objects->count; i++) {
-    if (objects->data[i].kind == kind && objects->data[i].tx == tx && objects->data[i].ty == ty) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-// Rocks are static decoration, not figures - no walk animation or map_place_object
-// bookkeeping to worry about here, just move it and flip the occupied flags.
-static void relocate_rock_off_tile(Object *rock, Map *map) {
-  int free_tx, free_ty;
-  if (!find_free_tile_at_least_one_away(map, rock->tx, rock->ty, &free_tx, &free_ty)) return;
-
-  Tile *old_tile = map_tile(map, rock->tx, rock->ty);
-  if (old_tile) old_tile->occupied = 0;
-
-  rock->tx = free_tx;
-  rock->ty = free_ty;
-
-  Tile *new_tile = map_tile(map, free_tx, free_ty);
-  if (new_tile) new_tile->occupied = 1;
-}
-
-static void set_tree_reach_tiles_occupied(Map *map, ObjectArray *objects, int tx, int ty, FigureDirection facing, bool occupied) {
-  Position reach_tiles[TREE_TRUNK_REACH_TILE_COUNT];
-  int count = tree_trunk_reach_tiles(facing, tx, ty, reach_tiles);
-  for (int i = 0; i < count; i++) {
-    Tile *tile = map_tile(map, reach_tiles[i].x, reach_tiles[i].y);
-    if (!tile) continue;
-    tile->occupied = occupied;
-    if (occupied) {
-      int figure_idx = find_figure_at_tile(objects, reach_tiles[i].x, reach_tiles[i].y);
-      if (figure_idx >= 0) relocate_figure_off_tile(&objects->data[figure_idx], map);
-
-      // A rock scattered here was placed back when the tree only blocked its
-      // own base tile - the trunk's reach growing to cover this tile once it
-      // falls is new, and the rock never got a chance to react to that.
-      int rock_idx = find_object_of_kind_at_tile(objects, OBJECT_ROCK, reach_tiles[i].x, reach_tiles[i].y);
-      if (rock_idx >= 0) relocate_rock_off_tile(&objects->data[rock_idx], map);
-    }
-  }
-}
-
 static void update_wood_picking(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state,
                                 GameState *game_state) {
   const float wood_pick_seconds = 2.0f;
@@ -659,7 +601,6 @@ static void update_wood_picking(Object *figure, Map *map, ObjectArray *objects, 
   int tree_idx = object_array_find_by_id(objects, route->tree_id);
   if (tree_idx >= 0) {
     Object *tree = &objects->data[tree_idx];
-    set_tree_reach_tiles_occupied(map, objects, tree->tx, tree->ty, tree->facing, false);
     map_clear_object(map, tree);
     object_array_remove_swap(objects, tree_idx);
   }
@@ -953,7 +894,8 @@ static void update_flow_field_figure(Object *figure, Map *map, ObjectArray *obje
     next_tile = node_index(figure->figure.step.x, figure->figure.step.y, map->w);
   }
 
-  if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK) {
+  if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK &&
+      figure->figure.action != FIGURE_ACTION_CARRY_TRUNK_WALK) {
     figure->figure.action = FIGURE_ACTION_WALK;
   }
   figure->figure.action_timer = 0.0f;
@@ -1014,7 +956,8 @@ static void update_direct_walk_figure(Object *figure, Map *map, ObjectArray *obj
     next_tile = node_index(figure->figure.step.x, figure->figure.step.y, map->w);
   }
 
-  if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK) {
+  if (figure->figure.action != FIGURE_ACTION_SOW && figure->figure.action != FIGURE_ACTION_CARRY_WALK &&
+      figure->figure.action != FIGURE_ACTION_CARRY_TRUNK_WALK) {
     figure->figure.action = FIGURE_ACTION_WALK;
   }
   figure->figure.action_timer = 0.0f;
@@ -1036,19 +979,14 @@ static void update_tree_chopping(Object *figure, Map *map, ObjectArray *objects)
   int tree_idx = find_object_at_tile(objects, figure->figure.gather.x, figure->figure.gather.y);
   if (tree_idx < 0 || objects->data[tree_idx].kind != OBJECT_TREE) return;
   Object *tree = &objects->data[tree_idx];
-
-  // Wood collecting is disabled for now - a felled tree just stays felled.
-  if (tree->tree.state == TREE_STATE_FELLED) {
-    figure->figure.action = FIGURE_ACTION_STAND;
-    return;
-  }
+  if (tree->tree.state == TREE_STATE_FELLED) return; // already handed off to wood_route below, shouldn't normally re-enter here
 
   tree->tree.chop_seconds += game_delta_time();
   if (tree->tree.chop_seconds < TREE_CHOP_SECONDS_TO_FELL) return;
   tree->tree.state = TREE_STATE_FELLED;
   tree->facing = FIGURE_DIR_RIGHT; // south-east - fixed fall direction
   tree->tree.chop_seconds = 0.0f;
-  set_tree_reach_tiles_occupied(map, objects, tree->tx, tree->ty, tree->facing, true);
+  tree->tree.claimed_by_figure_id = 0;
 
   // Defensive: the base tile should already be occupied since the tree was
   // first scattered, but if a figure somehow ended up on it anyway, move it
@@ -1056,16 +994,91 @@ static void update_tree_chopping(Object *figure, Map *map, ObjectArray *objects)
   int base_figure_idx = find_figure_at_tile(objects, tree->tx, tree->ty);
   if (base_figure_idx >= 0) relocate_figure_off_tile(&objects->data[base_figure_idx], map);
 
-  // One of the ring positions choppers stand at while working on a tree
-  // (the one directly opposite the fall direction, e.g. tx-1,ty for a
-  // south-east fall) is close enough to the stump that a stationary
-  // figure's sprite there visually overlaps under it once felled - even
-  // though that tile isn't part of the trunk's own footprint. Confirmed
-  // visually 2026-08-02 (chopper slot 4 in the ring scan order).
-  int behind_tx = tree->tx - TREE_TRUNK_DIR_TX[tree->facing];
-  int behind_ty = tree->ty - TREE_TRUNK_DIR_TY[tree->facing];
-  int behind_figure_idx = find_figure_at_tile(objects, behind_tx, behind_ty);
-  if (behind_figure_idx >= 0) relocate_figure_off_tile(&objects->data[behind_figure_idx], map);
+  // The chopper immediately hefts the trunk instead of going idle - update_wood_picking
+  // (dispatched from update_figures once wood_route.phase is PICKING) waits out the
+  // pick_timer, removes the tree object, and hands off to start_wood_walk_to_barn.
+  figure->figure.wood_route.phase = WOOD_PHASE_PICKING;
+  figure->figure.wood_route.pick_timer = 0.0f;
+  figure->figure.wood_route.tree_id = tree->id;
+  figure->figure.action = FIGURE_ACTION_CARRY_TRUNK_STAND;
+}
+
+// How many tiles a tree sits in from the nearest edge of the job rectangle -
+// 0 for a tree right on the border. Felling border-in instead of in scattered
+// order keeps a path open from outside the forest to whatever's felled next,
+// instead of workers having to shove past still-standing trees to reach one
+// buried in the middle of a dense patch.
+static int clear_forest_ring_distance(const RouteBounds *bounds, int tx, int ty) {
+  int d = tx - bounds->min_tx;
+  if (bounds->max_tx - tx < d) d = bounds->max_tx - tx;
+  if (ty - bounds->min_ty < d) d = ty - bounds->min_ty;
+  if (bounds->max_ty - ty < d) d = bounds->max_ty - ty;
+  return d;
+}
+
+// Object index of the nearest-to-border unclaimed standing tree still inside
+// bounds, or -1 if none are left to claim. Shared between the per-figure
+// follow-up pick below and units.c's batch initial-assignment pick, so both
+// use the exact same border-in ordering.
+int find_nearest_clear_forest_tree(const ObjectArray *objects, const RouteBounds *bounds) {
+  int best_idx = -1;
+  int best_ring = 0;
+  for (int i = 0; i < objects->count; i++) {
+    const Object *o = &objects->data[i];
+    if (o->kind != OBJECT_TREE || o->tree.state != TREE_STATE_STANDING) continue;
+    if (o->tree.claimed_by_figure_id != 0) continue;
+    if (o->tx < bounds->min_tx || o->tx > bounds->max_tx || o->ty < bounds->min_ty || o->ty > bounds->max_ty) continue;
+
+    int ring = clear_forest_ring_distance(bounds, o->tx, o->ty);
+    if (best_idx < 0 || ring < best_ring) {
+      best_idx = i;
+      best_ring = ring;
+    }
+  }
+  return best_idx;
+}
+
+// Called every frame a figure with an active clear-forest job is idle (not
+// walking, not already chopping) - picks the nearest-to-the-border unclaimed
+// standing tree still inside the job rectangle and sends the figure at it.
+// With no trees left to claim, the job is done and switches itself off.
+// Only handles figures already past the initial approach (see
+// assign_clear_forest_job in units.c for the batched first walk) - by then
+// figures are normally already inside bounds, so this is the cheap direct-
+// stepping hop from one felled tree to the next nearby one.
+static void update_clear_forest_route(Object *figure, Map *map, ObjectArray *objects, FloodFieldArray *flood_field_state) {
+  if (!figure->figure.clear_forest_route.active) return;
+  if (figure->figure.action != FIGURE_ACTION_STAND) return;
+
+  const RouteBounds *bounds = &figure->figure.clear_forest_route.route_bounds;
+  int best_idx = find_nearest_clear_forest_tree(objects, bounds);
+  if (best_idx < 0) {
+    figure->figure.clear_forest_route.active = false;
+    return;
+  }
+
+  Object *tree = &objects->data[best_idx];
+  int free_tx, free_ty;
+  if (map_free_tiles_near(map, tree->tx, tree->ty, 1, &free_tx, &free_ty) == 0) return;
+
+  tree->tree.claimed_by_figure_id = figure->id;
+  // Tree-to-tree hops within the job rectangle are short and the surroundings
+  // are already cleared border-in, so direct local stepping (no flood-fill)
+  // is enough there. But a figure that hasn't reached the rectangle yet needs
+  // real pathfinding for the approach - direct stepping has no lookahead, so
+  // over a long walk full of obstacles (other trees, water, buildings) it dead-
+  // ends constantly and update_direct_walk_figure's own fallback (update_figure.c,
+  // "next_tile == current_tile") ends up paying for the exact same full-map
+  // flood-fill anyway, just later and per stuck-frame instead of once up front.
+  bool figure_inside_bounds = figure->tx >= bounds->min_tx && figure->tx <= bounds->max_tx &&
+    figure->ty >= bounds->min_ty && figure->ty <= bounds->max_ty;
+  if (figure_inside_bounds) {
+    figure_walk_to_direct(figure, map, flood_field_state, (Position){free_tx, free_ty});
+  } else {
+    figure_walk_to(figure, map, flood_field_state, (Position){free_tx, free_ty});
+  }
+  figure->figure.pending_action = FIGURE_ACTION_CHOP;
+  figure->figure.gather = (Position){tree->tx, tree->ty};
 }
 
 void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture_state, FloodFieldArray *flood_field_state,
@@ -1091,6 +1104,7 @@ void update_figures(ObjectArray *objects, Map *map, const Texture_State *texture
         update_wood_picking(figure, map, objects, flood_field_state, game_state);
       }
       update_tree_chopping(figure, map, objects);
+      update_clear_forest_route(figure, map, objects, flood_field_state);
       if (figure->figure.flood_field_idx < 0 && !figure->figure.direct_walking) {
         handle_idle(figure, texture_state);
       }

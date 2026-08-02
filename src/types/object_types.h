@@ -99,6 +99,11 @@ typedef struct {
   unsigned int tree_id;
 } WoodRoute;
 
+typedef struct {
+  RouteBounds route_bounds;
+  bool active;
+} ClearForestRoute;
+
 typedef enum {
   OBJECT_BUILDING,
   OBJECT_FIGURE,
@@ -110,7 +115,14 @@ typedef enum {
   OBJECT_WHEAT_TUFT,
   OBJECT_PUDDLE,
   OBJECT_BOUNDARY_STONE,
-  OBJECT_ROCK
+  OBJECT_ROCK,
+  OBJECT_MOSS_FERNS,
+  OBJECT_MUSHROOMS,
+  OBJECT_STRAWBERRY,
+  OBJECT_CAIRN,
+  OBJECT_WOODY_DEBRIS,
+  OBJECT_HIVE,
+  OBJECT_WELL
 } ObjectKind;
 
 typedef struct {
@@ -130,6 +142,7 @@ typedef struct {
   SowRoute sow_route;
   DigRoute dig_route;
   WoodRoute wood_route;
+  ClearForestRoute clear_forest_route;
   Position step;
   int prev_tile;
   int best_distance_to_target;
@@ -163,6 +176,7 @@ typedef enum {
 typedef struct {
   TreeState state;
   float chop_seconds;
+  unsigned int claimed_by_figure_id; // 0: unclaimed, else the figure_id currently walking to/chopping this tree
 } TreeAttributes;
 
 typedef struct {

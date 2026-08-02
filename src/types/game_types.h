@@ -68,7 +68,7 @@ typedef struct {
 typedef struct {
   int grains;
   int straw;
-  int wood;
+  int timber;
   int clay;
   int limestone;
   int slaked_lime;
